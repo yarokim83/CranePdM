@@ -13,14 +13,20 @@ def check_readability():
         
         if client.get_connected():
             print(f"✅ 연결 성공: {plc_ip}")
-            print("Gantry 조이스틱을 조작하며 값이 변하는지 확인하세요.")
+            print("Gantry Speed Check: Order(MW450) vs Feedback(DB57.DBW10)")
+            print("-" * 60)
             
-            # 10번만 읽어보기 테스트
-            for _ in range(10):
-                # MW450(2바이트) 읽기
-                data = client.mb_read(450, 2)
-                value = get_int(data, 0)
-                print(f"현재 Order Speed 값: {value}")
+            # 100번만 읽어보기 테스트
+            for i in range(100):
+                # Order Speed: MW450 읽기
+                order_data = client.mb_read(450, 2)
+                order_val = get_int(order_data, 0)
+                
+                # Feedback Speed: DB57.DBW10 읽기
+                feedback_data = client.db_read(57, 10, 2)
+                feedback_val = get_int(feedback_data, 0)
+                
+                print(f"[{i+1}/100] Order: {order_val}  |  Feedback: {feedback_val}")
                 time.sleep(1)
         else:
             print("❌ 연결 실패: IP 또는 PLC 설정을 확인하세요.")
