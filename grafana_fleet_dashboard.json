@@ -1,0 +1,259 @@
+{
+    "annotations": {
+        "list": [
+            {
+                "builtIn": 1,
+                "datasource": {
+                    "type": "grafana",
+                    "uid": "-- Grafana --"
+                },
+                "enable": true,
+                "hide": true,
+                "iconColor": "rgba(0, 211, 255, 1)",
+                "name": "Annotations & Alerts",
+                "type": "dashboard"
+            }
+        ]
+    },
+    "editable": true,
+    "fiscalYearStartMonth": 0,
+    "graphTooltip": 0,
+    "id": null,
+    "links": [],
+    "panels": [
+        {
+            "datasource": {
+                "uid": "col_cranepdm"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "custom": {
+                        "align": "auto",
+                        "cellOptions": {
+                            "type": "auto"
+                        },
+                        "inspect": false
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            },
+                            {
+                                "color": "orange",
+                                "value": 20000
+                            },
+                            {
+                                "color": "red",
+                                "value": 30000
+                            }
+                        ]
+                    }
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 0,
+                "y": 0
+            },
+            "id": 1,
+            "options": {
+                "cellHeight": "sm",
+                "footer": {
+                    "countRows": false,
+                    "fields": "",
+                    "reducer": [
+                        "sum"
+                    ],
+                    "show": false
+                },
+                "showHeader": true
+            },
+            "pluginVersion": "10.4.1",
+            "targets": [
+                {
+                    "query": "from(bucket: \"cranepdm_kpis\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"reducer_damage\")\r\n  |> group(columns: [\"crane_id\"])\r\n  |> mean()\r\n  |> group()\r\n  |> sort(columns: [\"_value\"], desc: true)\r\n  |> limit(n: 5)\r\n  |> keep(columns: [\"crane_id\", \"_value\"])",
+                    "refId": "A"
+                }
+            ],
+            "title": "Top 5 Risk Cranes (Highest Avg Damage)",
+            "type": "table"
+        },
+        {
+            "datasource": {
+                "uid": "col_cranepdm"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "custom": {
+                        "fillOpacity": 80,
+                        "lineWidth": 1
+                    },
+                    "displayNameFromDS": "crane_id",
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            },
+                            {
+                                "color": "orange",
+                                "value": 20000
+                            },
+                            {
+                                "color": "red",
+                                "value": 30000
+                            }
+                        ]
+                    }
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 8,
+                "w": 12,
+                "x": 12,
+                "y": 0
+            },
+            "id": 2,
+            "options": {
+                "colorMode": "background",
+                "graphMode": "none",
+                "justifyMode": "auto",
+                "orientation": "auto",
+                "reduceOptions": {
+                    "calcs": [
+                        "lastNotNull"
+                    ],
+                    "fields": "",
+                    "values": false
+                },
+                "textMode": "name"
+            },
+            "pluginVersion": "10.4.1",
+            "targets": [
+                {
+                    "query": "from(bucket: \"cranepdm_kpis\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"reducer_damage\")\r\n  |> group(columns: [\"crane_id\"])\r\n  |> mean()\r\n  |> rename(columns: {_value: \"damage\"})\r\n  |> yield(name: \"crane_id\")",
+                    "refId": "A"
+                }
+            ],
+            "title": "38 Fleet Status Matrix (Damage Warning)",
+            "type": "stat"
+        },
+        {
+            "datasource": {
+                "uid": "col_cranepdm"
+            },
+            "fieldConfig": {
+                "defaults": {
+                    "color": {
+                        "mode": "thresholds"
+                    },
+                    "custom": {
+                        "axisBorderShow": false,
+                        "axisCenteredZero": false,
+                        "axisColorMode": "text",
+                        "axisLabel": "Crane ID",
+                        "axisPlacement": "bottom",
+                        "fillOpacity": 80,
+                        "gradientMode": "none",
+                        "hideFrom": {
+                            "legend": false,
+                            "tooltip": false,
+                            "viz": false
+                        },
+                        "lineWidth": 1,
+                        "scaleDistribution": {
+                            "type": "linear"
+                        }
+                    },
+                    "mappings": [],
+                    "thresholds": {
+                        "mode": "absolute",
+                        "steps": [
+                            {
+                                "color": "green",
+                                "value": null
+                            },
+                            {
+                                "color": "orange",
+                                "value": 20000
+                            },
+                            {
+                                "color": "red",
+                                "value": 30000
+                            }
+                        ]
+                    }
+                },
+                "overrides": []
+            },
+            "gridPos": {
+                "h": 12,
+                "w": 24,
+                "x": 0,
+                "y": 8
+            },
+            "id": 3,
+            "options": {
+                "barRadius": 0,
+                "barWidth": 0.97,
+                "fullHighlight": false,
+                "groupWidth": 0.7,
+                "legend": {
+                    "calcs": [],
+                    "displayMode": "list",
+                    "placement": "bottom",
+                    "showLegend": false
+                },
+                "orientation": "auto",
+                "showValue": "never",
+                "stacking": "none",
+                "text": {},
+                "tooltip": {
+                    "mode": "single",
+                    "sort": "none"
+                },
+                "xField": "crane_id",
+                "xTickLabelRotation": -45,
+                "xTickLabelSpacing": 0
+            },
+            "targets": [
+                {
+                    "query": "from(bucket: \"cranepdm_kpis\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"reducer_damage\")\r\n  |> group(columns: [\"crane_id\"])\r\n  |> mean()\r\n  |> group()\r\n  |> keep(columns: [\"crane_id\", \"_value\"])",
+                    "refId": "A"
+                }
+            ],
+            "title": "Fleet Outlier Detection (Avg Reducer Damage by Crane)",
+            "type": "barchart"
+        }
+    ],
+    "schemaVersion": 39,
+    "style": "dark",
+    "tags": [],
+    "templating": {
+        "list": []
+    },
+    "time": {
+        "from": "now-7d",
+        "to": "now"
+    },
+    "timepicker": {},
+    "timezone": "browser",
+    "title": "ARMGC Fleet Overview (38 Cranes)",
+    "uid": "fleet_overview",
+    "version": 1
+}
