@@ -11,8 +11,8 @@ import threading
 
 # PLC Configurations
 CRANES = [
-    {"id": "ARMGC_246", "ip": "10.200.72.34", "rack": 0, "slot": 2},
-    {"id": "ARMGC_212", "ip": "10.200.71.12", "rack": 0, "slot": 2} # Added ARMGC 212
+    {"id": "ARMGC_212", "ip": "10.200.71.12", "rack": 0, "slot": 2},
+    {"id": "ARMGC_254", "ip": "10.200.72.38", "rack": 0, "slot": 2} # Added ARMGC 254
 ]
 
 # Logging Configuration
@@ -38,7 +38,8 @@ def init_csv():
             writer = csv.writer(f)
             writer.writerow([
                 'timestamp', 'crane_id', 'event_duration_s', 'peak_order', 'peak_feedback', 
-                'max_error', 'rms_error', 'mean_stress', 'reducer_damage', 'avg_weight', 'is_loaded'
+                'max_error', 'rms_error', 'mean_stress', 'reducer_damage', 'avg_weight', 'is_loaded',
+                'start_pos', 'end_pos', 'avg_pos'
             ])
             
 # Thread-safe lock for printing
@@ -48,13 +49,14 @@ def sync_print(msg):
     with print_lock:
         print(msg)
 
-def calculate_kpis(orders, feedbacks, loads, weights, dt_list):
+def calculate_kpis(orders, feedbacks, loads, weights, positions, dt_list):
     if not orders or len(orders) < 2:
         return None
 
     # Identify dominant load state for this event
     is_loaded = sum(loads) > len(loads) // 2
     avg_weight = sum(weights) / len(weights) if weights else 0
+    avg_pos = sum(positions) / len(positions) if positions else 0
 
     max_err = 0
     sum_sq_err = 0
@@ -116,7 +118,10 @@ def calculate_kpis(orders, feedbacks, loads, weights, dt_list):
         'mean_stress': round(mean_stress, 2),
         'reducer_damage': round(total_reducer_damage, 2),
         'avg_weight': round(avg_weight, 1),
-        'is_loaded': is_loaded
+        'is_loaded': is_loaded,
+        'start_pos': positions[0],
+        'end_pos': positions[-1],
+        'avg_pos': round(avg_pos, 1)
     }
 
 def log_event(crane_id, kpis):
@@ -134,7 +139,10 @@ def log_event(crane_id, kpis):
             kpis['mean_stress'], 
             kpis['reducer_damage'],
             kpis['avg_weight'], 
-            1 if kpis['is_loaded'] else 0
+            1 if kpis['is_loaded'] else 0,
+            kpis['start_pos'],
+            kpis['end_pos'],
+            kpis['avg_pos']
         ])
         
     # Write to InfluxDB
@@ -151,13 +159,16 @@ def log_event(crane_id, kpis):
             .field("mean_stress", float(kpis['mean_stress']))
             .field("reducer_damage", float(kpis['reducer_damage']))
             .field("avg_weight", float(kpis['avg_weight']))
+            .field("start_pos", float(kpis['start_pos']))
+            .field("end_pos", float(kpis['end_pos']))
+            .field("avg_pos", float(kpis['avg_pos']))
         )
         write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=point)
         influx_status = "InfluxDB OK"
     except Exception as e:
         influx_status = f"InfluxDB Error: {e}"
 
-    sync_print(f"[{ts}] [{crane_id}] Logged | Dur: {kpis['duration']}s | RDI(Damage): {kpis['reducer_damage']} | Stress: {kpis['mean_stress']} | Load: {'Yes' if kpis['is_loaded'] else 'No'} | {influx_status}")
+    sync_print(f"[{ts}] [{crane_id}] Logged | Dur: {kpis['duration']}s | Pos: {kpis['start_pos']}->{kpis['end_pos']} | Stress: {kpis['mean_stress']} | {influx_status}")
 
 def monitor_crane(crane_config):
     crane_id = crane_config['id']
@@ -186,7 +197,7 @@ def monitor_crane(crane_config):
                 
             # Movement Detected -> Switch to Active Logging
             sync_print(f"\n🚀 [{crane_id}] Movement! Order: {current_order}. Recording...")
-            orders, feedbacks, loads, weights, dt_list = [], [], [], [], []
+            orders, feedbacks, loads, weights, positions, dt_list = [], [], [], [], [], []
             last_time = time.time()
             
             while True:
@@ -204,6 +215,9 @@ def monitor_crane(crane_config):
                     wt_data = client.db_read(57, 48, 2)
                     current_wt = get_int(wt_data, 0)
                     
+                    pos_data = client.db_read(57, 200, 2)
+                    current_pos = get_int(pos_data, 0)
+                    
                     # Record data point
                     now = time.time()
                     dt_list.append(now - last_time)
@@ -213,6 +227,7 @@ def monitor_crane(crane_config):
                     feedbacks.append(current_fb)
                     loads.append(is_locked)
                     weights.append(current_wt)
+                    positions.append(current_pos)
                     
                     # Stop Condition: Order speed returns near 0
                     if abs(current_order) < SPEED_THRESHOLD:
@@ -230,7 +245,7 @@ def monitor_crane(crane_config):
 
             # Event finished, calculate and log KPIs
             if orders:
-                kpis = calculate_kpis(orders, feedbacks, loads, weights, dt_list)
+                kpis = calculate_kpis(orders, feedbacks, loads, weights, positions, dt_list)
                 if kpis and kpis['duration'] > 1.0: # Ignore very short blips
                     log_event(crane_id, kpis)
                 else:

@@ -16,6 +16,7 @@ def collect_data(samples=3000):
     feedbacks = []
     loads = []
     weights = []
+    positions = []
     
     try:
         client.connect(plc_ip, rack, slot)
@@ -40,31 +41,36 @@ def collect_data(samples=3000):
                 weight_data = client.db_read(57, 48, 2)
                 weight_val = get_int(weight_data, 0)
                 
+                # Gantry Position (DB57.DBW200)
+                pos_data = client.db_read(57, 200, 2)
+                pos_val = get_int(pos_data, 0)
+                
                 # 데이터 저장
                 times.append(time.time() - start_time)
                 orders.append(order_val)
                 feedbacks.append(feedback_val)
                 loads.append(is_locked)
                 weights.append(weight_val)
+                positions.append(pos_val)
                 
                 status_str = "Lock" if is_locked else "Unlock"
-                print(f"[{i+1}/{samples}] Order: {order_val} | FB_Spd: {feedback_val} | Twist: {status_str} | Wgt: {weight_val}")
+                print(f"[{i+1}/{samples}] Order: {order_val} | FB_Spd: {feedback_val} | Twist: {status_str} | Wgt: {weight_val} | Pos: {pos_val}")
                 time.sleep(0.1) # 0.1초 간격
                 
         else:
             print("❌ PLC 연결 실패")
-            return None, None, None, None, None
+            return None, None, None, None, None, None
             
     except Exception as e:
         print(f"⚠️ 오류 발생: {e}")
-        return None, None, None, None, None
+        return None, None, None, None, None, None
     finally:
         if client.get_connected():
             client.disconnect()
             
-    return times, orders, feedbacks, loads, weights
+    return times, orders, feedbacks, loads, weights, positions
 
-def analyze_and_plot(times, orders, feedbacks, loads, weights):
+def analyze_and_plot(times, orders, feedbacks, loads, weights, positions):
     if not times:
         return
 
@@ -101,90 +107,83 @@ def analyze_and_plot(times, orders, feedbacks, loads, weights):
         else:
             total_stress_empty += stress
             cnt_empty += 1
-
+            
+    # 전체 상태 판단 KPI
+    overall_stress = sum(stress_scores) / len(stress_scores)
     avg_stress_loaded = total_stress_loaded / cnt_loaded if cnt_loaded > 0 else 0
     avg_stress_empty = total_stress_empty / cnt_empty if cnt_empty > 0 else 0
-    avg_stress_total = sum(stress_scores) / len(stress_scores) if stress_scores else 0
     
-    # 한글 폰트 설정 (윈도우)
-    plt.rcParams['font.family'] = 'Malgun Gothic'
-    plt.rcParams['axes.unicode_minus'] = False
-    
-    # 그래프 그리기
-    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12, 11), sharex=True)
-    
-    np_times = np.array(times)
-    np_loads = np.array(loads)
-    
-    # Load 상태 배경 구별 함수
-    def add_load_background(ax, include_label=False):
-        lbl = 'Loaded (Container)' if include_label else None
-        ax.fill_between(np_times, 0, 1, where=np_loads, color='lightgray', alpha=0.5, 
-                        transform=ax.get_xaxis_transform(), label=lbl)
+    health_status = "Normal"
+    if overall_stress > 250:
+        health_status = "CRITICAL WARNING"
+    elif overall_stress > 150:
+        health_status = "Warning"
 
-    # 1. 속도 비교 그래프 (가중치/하중 표시 추가)
-    ax1.plot(times, orders, label='Order (DB57.DBW8)', color='blue', linestyle='--')
-    ax1.plot(times, feedbacks, label='Feedback (DB57.DBW10)', color='green')
+    # 시각화 (그래프 그리기)
+    fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1, figsize=(12, 12), gridspec_kw={'height_ratios': [3, 2, 2, 1]})
+    fig.suptitle('Gantry Speed, Error, Stress & Position Analysis', fontsize=16)
+
+    # 1. 속도 그래프 (Order vs Feedback)
+    ax1.plot(times, orders, label='Order Speed (MW450)', color='blue', linestyle='--')
+    ax1.plot(times, feedbacks, label='Feedback Speed (DB57.DBW10)', color='red', alpha=0.7)
     
-    # 오른쪽 축에 하중(Weight) 차트 추가
-    ax1_wgt = ax1.twinx()
-    ax1_wgt.plot(times, weights, label='Total Load (Weight)', color='purple', alpha=0.3, linewidth=2)
-    ax1_wgt.set_ylabel('Weight (DB57.DBW48)', color='purple')
-    ax1_wgt.tick_params(axis='y', labelcolor='purple')
-    
-    ax1.set_title('Gantry Speed & Load Correlation')
+    # Twistlock Lock(주황) 구간 강조
+    for i in range(len(times)-1):
+        if loads[i]:
+            ax1.axvspan(times[i], times[i+1], color='orange', alpha=0.1, lw=0)
+            
+    # X축 하중 데이터 추가
+    ax1_w = ax1.twinx()
+    ax1_w.plot(times, weights, color='green', alpha=0.3, label='Payload Weight (DB57.DBW48)')
+    ax1_w.set_ylabel('Weight', color='green')
+
     ax1.set_ylabel('Speed')
-    add_load_background(ax1, True)
-    
-    # 범례 합치기
-    lines1, labels1 = ax1.get_legend_handles_labels()
-    lines2, labels2 = ax1_wgt.get_legend_handles_labels()
-    ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper left')
+    ax1.legend(loc='upper left')
     ax1.grid(True)
+    ax1.set_title('Order vs Feedback Speed (Orange BG: Twistlock Locked)')
+
+    # 2. 오차 그래프 (Order - Feedback)
+    ax2.plot(times, errors, label='Speed Error', color='purple')
+    ax2.axhline(0, color='black', linewidth=1)
     
-    # 2. 오차 그래프
-    ax2.plot(times, errors, label='Error (Order - Feedback)', color='red')
-    ax2.axhline(0, color='black', linestyle='--')
-    ax2.set_title('Speed Error')
-    ax2.set_ylabel('Difference')
-    add_load_background(ax2)
+    for i in range(len(times)-1):
+        if loads[i]:
+            ax2.axvspan(times[i], times[i+1], color='orange', alpha=0.1, lw=0)
+            
+    ax2.set_ylabel('Error Value')
     ax2.legend()
     ax2.grid(True)
 
-    # 3. 케이블 스트레스 분석
-    ax3.plot(times, stress_scores, label='Cable Stress Index', color='orange')
-    ax3.axhline(avg_stress_loaded, color='purple', linestyle=':', label=f'Avg Loaded: {avg_stress_loaded:.1f}')
-    ax3.axhline(avg_stress_empty, color='brown', linestyle=':', label=f'Avg Empty: {avg_stress_empty:.1f}')
-    ax3.set_title('Cable Reel Stress Analysis')
-    ax3.set_ylabel('Stress Score')
-    ax3.set_xlabel('Time (s)')
-    add_load_background(ax3)
+    # 3. 스트레스/피로도 그래프
+    ax3.plot(times, stress_scores, label='Cable Reel Stress Score', color='darkorange')
+    ax3.axhline(150, color='red', linestyle=':', label='Warning Threshold')
+    ax3.set_ylabel('Stress Index')
     ax3.legend()
     ax3.grid(True)
     
-    # 상태 판정 (Load-Aware)
-    status = "Normal (정상)"
-    if avg_stress_empty > 300: # 빈 훅인데 저항/오차가 크면 이상 징후
-        status = "WARNING (빈 상태에서 높은 스트레스 발견 -> 기계적 마찰/구동부 점검 필요)"
-    elif avg_stress_loaded > 600:
-        status = "Caution (컨테이너 적재 시 높은 스트레스 -> 모터 추력 및 릴 세팅 확인)"
-        
-    fig.suptitle(f'Speed Analytics (Load-Aware) - 진단: {status}', fontsize=16)
-    
-    # 여백 조정
-    plt.tight_layout()
-    
-    # 저장 및 표시
-    filename = 'cable_reel_analysis_load_aware.png'
-    plt.savefig(filename)
-    print(f"\n📊 분석 그래프가 저장되었습니다: {filename}")
-    print(f"🩺 진단 결과: {status}")
-    print(f"   - 컨테이너 적재 시(Loaded) 평균 스트레스 : {avg_stress_loaded:.1f}")
-    print(f"   - 빈 부분 이동 시(Empty) 평균 스트레스   : {avg_stress_empty:.1f}")
-    print(f"   - 전체 평균 스트레스                  : {avg_stress_total:.1f}")
+    # 4. Gantry 위치 그래프 추가
+    ax4.plot(times, positions, label='Gantry Position (DB57.DBW62)', color='darkblue')
+    ax4.set_xlabel('Time (seconds)')
+    ax4.set_ylabel('Position')
+    ax4.legend()
+    ax4.grid(True)
+
+    # 전체 통계 텍스트
+    stats_text = (
+        f"Health Status: {health_status}\n"
+        f"Overall Avg Stress: {overall_stress:.1f}\n"
+        f"Loaded Avg Stress: {avg_stress_loaded:.1f}\n"
+        f"Empty Avg Stress: {avg_stress_empty:.1f}\n"
+        f"Max Error: {max(map(abs, errors))}\n"
+        f"Distance Traveled: {abs(positions[-1] - positions[0]) if positions else 0}"
+    )
+    plt.figtext(0.01, 0.01, stats_text, fontsize=10, bbox=dict(facecolor='white', alpha=0.8))
+
+    plt.tight_layout(rect=[0, 0.05, 1, 0.95])
+    plt.savefig('cable_reel_analysis_load_aware.png')
     plt.show()
+    plt.close()
 
 if __name__ == "__main__":
-    t, o, f, l, w = collect_data(samples=3000)
-    if t:
-        analyze_and_plot(t, o, f, l, w)
+    t, o, f, l, w, p = collect_data(samples=3000) # 5분간 수집 (10Hz)
+    analyze_and_plot(t, o, f, l, w, p)
