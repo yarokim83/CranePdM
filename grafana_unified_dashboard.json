@@ -1,0 +1,662 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "uid": "col_cranepdm"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 20000
+              },
+              {
+                "color": "red",
+                "value": 30000
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 10,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "pluginVersion": "10.4.1",
+      "targets": [
+        {
+          "query": "from(bucket: \"cranepdm_kpis\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"reducer_damage\")\r\n  |> group(columns: [\"crane_id\"])\r\n  |> mean()\r\n  |> group()\r\n  |> sort(columns: [\"_value\"], desc: true)\r\n  |> limit(n: 5)\r\n  |> keep(columns: [\"crane_id\", \"_value\"])",
+          "refId": "A"
+        }
+      ],
+      "title": "Top 5 Risk Cranes (Highest Avg Reducer Stress)",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "uid": "col_cranepdm"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "displayName": "${__field.labels.crane_id}",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 20000
+              },
+              {
+                "color": "red",
+                "value": 30000
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 14,
+        "x": 10,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "name"
+      },
+      "pluginVersion": "10.4.1",
+      "targets": [
+        {
+          "query": "from(bucket: \"cranepdm_kpis\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"reducer_damage\")\r\n  |> group(columns: [\"crane_id\"])\r\n  |> mean()",
+          "refId": "A"
+        }
+      ],
+      "title": "38 Fleet Status Matrix (Reducer Stress Warning)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "uid": "col_cranepdm"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "displayName": "${__field.labels.crane_id}",
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 20000
+              },
+              {
+                "color": "red",
+                "value": 30000
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      },
+      "id": 3,
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true
+      },
+      "targets": [
+        {
+          "query": "from(bucket: \"cranepdm_kpis\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"reducer_damage\")\r\n  |> group(columns: [\"crane_id\"])\r\n  |> mean()",
+          "refId": "A"
+        }
+      ],
+      "title": "Fleet Outlier Detection (Avg Reducer Stress by Crane)",
+      "type": "bargauge"
+    },
+    {
+      "id": 4,
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 24,
+        "h": 1
+      },
+      "type": "row",
+      "title": "🔍 DETAILED ASSET DIAGNOSTICS (Select 'Crane_ID' variable at the top left)"
+    },
+    {
+      "datasource": {
+        "uid": "influxdb_cranepdm"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1500
+              },
+              {
+                "color": "red",
+                "value": 2000
+              }
+            ]
+          },
+          "unit": "short",
+          "displayName": "${__field.labels.crane_id}"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 21
+      },
+      "id": 5,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        },
+        "barRadius": 0,
+        "barWidth": 0.9,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "orientation": "auto",
+        "showValue": "auto",
+        "stacking": "none",
+        "text": {},
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
+      },
+      "targets": [
+        {
+          "query": "from(bucket: \"cranepdm_kpis\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\r\n  |> filter(fn: (r) => r[\"crane_id\"] =~ /^${Crane_ID:regex}$/)\r\n  |> filter(fn: (r) => r[\"_field\"] == \"peak_feedback\")\r\n  |> group(columns: [\"crane_id\"])\r\n  |> max()\r\n  |> group()\r\n  |> yield(name: \"max_speed\")",
+          "refId": "A"
+        }
+      ],
+      "title": "Daily Max Speed by Crane (peak_feedback)",
+      "type": "barchart"
+    },
+    {
+      "datasource": {
+        "uid": "influxdb_cranepdm"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "always",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "area"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 300
+              },
+              {
+                "color": "red",
+                "value": 600
+              }
+            ]
+          },
+          "unit": "short",
+          "displayName": "${__field.labels.crane_id}"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 21
+      },
+      "id": 6,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "query": "from(bucket: \"cranepdm_kpis\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\r\n  |> filter(fn: (r) => r[\"crane_id\"] =~ /^${Crane_ID:regex}$/)\r\n  |> filter(fn: (r) => r[\"_field\"] == \"mean_stress\")\r\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\r\n  |> yield(name: \"mean\")",
+          "refId": "A"
+        }
+      ],
+      "title": "Cable Stress Index (Mean)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "uid": "influxdb_cranepdm"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "displayName": "${__field.labels.crane_id}"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 31
+      },
+      "id": 7,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "query": "from(bucket: \"cranepdm_kpis\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\r\n  |> filter(fn: (r) => r[\"crane_id\"] =~ /^${Crane_ID:regex}$/)\r\n  |> filter(fn: (r) => r[\"_field\"] == \"avg_weight\")\r\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)\r\n  |> yield(name: \"mean\")",
+          "refId": "A"
+        }
+      ],
+      "title": "Payload Weight (DB57.DBW48)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "uid": "influxdb_cranepdm"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "displayName": "${__field.labels.crane_id}"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 31
+      },
+      "id": 8,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "query": "from(bucket: \"cranepdm_kpis\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\r\n  |> filter(fn: (r) => r[\"crane_id\"] =~ /^${Crane_ID:regex}$/)\r\n  |> filter(fn: (r) => r[\"_field\"] == \"max_error\")\r\n  |> aggregateWindow(every: v.windowPeriod, fn: max, createEmpty: false)\r\n  |> yield(name: \"max\")",
+          "refId": "A"
+        }
+      ],
+      "title": "Max Speed Error",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "uid": "influxdb_cranepdm"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "pointSize": {
+              "fixed": 8
+            }
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 41
+      },
+      "id": 9,
+      "options": {
+        "seriesMapping": "auto"
+      },
+      "targets": [
+        {
+          "query": "from(bucket: \"cranepdm_kpis\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\r\n  |> filter(fn: (r) => r[\"crane_id\"] =~ /^${Crane_ID:regex}$/)\r\n  |> filter(fn: (r) => r[\"_field\"] == \"avg_pos\" or r[\"_field\"] == \"reducer_damage\")\r\n  |> pivot(rowKey:[\"_time\", \"crane_id\"], columnKey: [\"_field\"], valueColumn: \"_value\")\r\n  |> keep(columns: [\"avg_pos\", \"crane_id\", \"reducer_damage\"])\r\n  |> pivot(rowKey:[\"avg_pos\"], columnKey: [\"crane_id\"], valueColumn: \"reducer_damage\")",
+          "refId": "A"
+        }
+      ],
+      "title": "Rail Health Mapping (Position vs Reducer Damage)",
+      "type": "xychart"
+    }
+  ],
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": [],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "uid": "influxdb_cranepdm"
+        },
+        "definition": "import \"influxdata/influxdb/schema\"\r\nschema.tagValues(bucket: \"cranepdm_kpis\", tag: \"crane_id\")",
+        "hide": 0,
+        "includeAll": true,
+        "multi": true,
+        "name": "Crane_ID",
+        "options": [],
+        "query": "import \"influxdata/influxdb/schema\"\r\nschema.tagValues(bucket: \"cranepdm_kpis\", tag: \"crane_id\")",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Total Control Tower (Fleet Overview + PdM Details)",
+  "uid": "total_control_tower_v1",
+  "version": 1
+}
