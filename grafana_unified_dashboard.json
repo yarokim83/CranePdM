@@ -195,10 +195,16 @@
             "lastNotNull"
           ],
           "fields": "",
-          "values": false
+          "values": false,
+          "limit": 100
         },
         "showUnfilled": true,
-        "minVizHeight": 16
+        "minVizHeight": 16,
+        "text": {
+          "valueSize": 14,
+          "titleSize": 16
+        },
+        "minVizWidth": 0
       },
       "targets": [
         {
