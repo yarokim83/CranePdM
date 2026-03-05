@@ -213,6 +213,21 @@ def log_event(crane_id, kpis):
 
     sync_print(f"[{ts}] [{crane_id}] Logged | Dur: {kpis['duration']}s | Pos: {kpis['start_pos']}->{kpis['end_pos']} | Stress: {kpis['mean_stress']} | {influx_status}")
 
+def log_fault_event(crane_id, fault_name, position):
+    ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    try:
+        point = (
+            Point("crane_faults")
+            .tag("crane_id", crane_id)
+            .tag("fault_name", fault_name)
+            .field("occurred", 1)
+            .field("position", float(position))
+        )
+        write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=point)
+        sync_print(f"🚨 [{ts}] [{crane_id}] {fault_name} Triggered! Logged at Pos: {position}")
+    except Exception as e:
+        sync_print(f"⚠️ [{crane_id}] Fault InfluxDB Error: {e}")
+
 def monitor_crane(crane_config):
     crane_id = crane_config['id']
     ip = crane_config['ip']
@@ -220,6 +235,7 @@ def monitor_crane(crane_config):
     slot = crane_config['slot']
     
     client = snap7.client.Client()
+    prev_overtension = False
     
     while True:
         try:
@@ -229,6 +245,14 @@ def monitor_crane(crane_config):
                 time.sleep(1)
                 continue
 
+            # Check Faults (Idle Polling)
+            fault_data = client.db_read(59, 126, 1)
+            current_overtension = get_bool(fault_data, 0, 1) or get_bool(fault_data, 0, 2)
+            if current_overtension and not prev_overtension:
+                pos_data = client.db_read(57, 200, 2)
+                log_fault_event(crane_id, "Cable_Reel_Overtension", get_int(pos_data, 0))
+            prev_overtension = current_overtension
+
             # Check IDLE state (Poll slowly)
             order_data = client.db_read(57, 8, 2)
             current_order = get_int(order_data, 0)
@@ -237,7 +261,6 @@ def monitor_crane(crane_config):
                 # Crane is idle
                 time.sleep(IDLE_POLL_RATE)
                 continue
-                
             # Movement Detected -> Switch to Active Logging
             sync_print(f"\n🚀 [{crane_id}] Movement! Order: {current_order}. Recording...")
             orders, feedbacks, loads, weights, positions, dt_list = [], [], [], [], [], []
@@ -260,6 +283,13 @@ def monitor_crane(crane_config):
                     
                     pos_data = client.db_read(57, 200, 2)
                     current_pos = get_int(pos_data, 0)
+                    
+                    # Check Faults (Active Polling)
+                    fault_data = client.db_read(59, 126, 1)
+                    current_overtension = get_bool(fault_data, 0, 1) or get_bool(fault_data, 0, 2)
+                    if current_overtension and not prev_overtension:
+                        log_fault_event(crane_id, "Cable_Reel_Overtension", current_pos)
+                    prev_overtension = current_overtension
                     
                     # Record data point
                     now = time.time()
