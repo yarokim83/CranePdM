@@ -216,4 +216,43 @@ graph TD
 
 ---
 
+## 8. 대시보드 패널별 `reducer_damage` 적용 현황
+
+현재 Grafana 대시보드에는 총 7개의 패널이 존재합니다. 이 중 **5개 패널**이 동일한 `reducer_damage` 필드(감속기 데미지 인덱스)를 조회하며, 나머지 2개는 별도의 데이터를 사용합니다.
+
+### 8.1 `reducer_damage` 공식을 사용하는 패널 (5개)
+
+| # | 패널 이름 | Flux 쿼리 핵심 | 집계 방식 | 시각화 |
+|---|---|---|---|---|
+| 1 | **Top 5 Risk Cranes** | `_field == "reducer_damage"` | `mean()` → 상위 5개 | 테이블 (게이지 셀) |
+| 2 | **38 Fleet Status Matrix** | `_field == "reducer_damage"` | `mean()` → 38대 전체 | 신호등 (Stat) |
+| 3 | **Fleet Outlier Detection** | `_field == "reducer_damage"` | `mean()` → 38대 전체 | 세로 막대그래프 |
+| 4 | **Rail Health Mapping** | `_field == "reducer_damage"` + `avg_pos` | 원본값 (집계 없음) | XY 산점도 |
+| 5 | **Reducer Damage Trend** | `_field == "reducer_damage"` | `aggregateWindow(mean)` | 시계열 꺾은선 |
+
+> 💡 5개 패널 모두 **완전히 동일한 `reducer_damage` 값**을 기반으로 합니다. 차이점은 오직 **집계 방식(mean, 원본)과 시각화 형태(테이블, 그래프, 산점도)**뿐입니다.
+
+### 8.2 `reducer_damage`를 사용하지 않는 패널 (2개)
+
+| # | 패널 이름 | 사용 필드 | 설명 |
+|---|---|---|---|
+| 6 | **Daily Max Speed** | `peak_feedback` | 각 크레인의 당일 최고 속도 피드백값 (운영 참고용) |
+| 7 | **Fault Hotspot Mapping** | `crane_faults` (position) | 케이블 릴 슬랙 결함 발생 위치 (결함 감시용) |
+
+### 8.3 핵심 공식 요약 (한 줄 정리)
+
+대시보드 5개 패널이 공통으로 표시하는 **`reducer_damage`** 값의 전체 공식을 한 줄로 축약하면 다음과 같습니다:
+
+```
+reducer_damage = Σ [ (|Δv/Δt| × M)² × 0.0001 + |Δ²v/Δt²| × M × 0.005 ]
+```
+
+여기서:
+- `Δv/Δt` = 속도 피드백의 1차 미분 (가속도)
+- `Δ²v/Δt²` = 속도 피드백의 2차 미분 (저크)
+- `M` = 유효 질량 = `1.0 + (화물중량 / 50.0)`
+- `Σ` = 이동 이벤트 전 구간에 걸친 누적 합산
+
+---
+
 *본 문서는 `crane_edge_logger.py` 소스코드를 기반으로 작성되었으며, 알고리즘 변경 시 함께 업데이트되어야 합니다.*
