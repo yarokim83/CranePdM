@@ -650,7 +650,7 @@
           "refId": "A"
         }
       ],
-      "title": "Fault Hotspot Mapping (Position vs Overtension)",
+      "title": "Fault Hotspot Mapping (Position vs Slack)",
       "type": "xychart"
     }
   ],
