@@ -181,7 +181,7 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 12,
+        "h": 24,
         "w": 24,
         "x": 0,
         "y": 8
@@ -197,7 +197,8 @@
           "fields": "",
           "values": false
         },
-        "showUnfilled": true
+        "showUnfilled": true,
+        "minVizHeight": 16
       },
       "targets": [
         {
@@ -212,7 +213,7 @@
       "id": 4,
       "gridPos": {
         "x": 0,
-        "y": 20,
+        "y": 32,
         "w": 24,
         "h": 1
       },
@@ -237,7 +238,7 @@
         "h": 12,
         "w": 24,
         "x": 0,
-        "y": 21
+        "y": 33
       },
       "id": 9,
       "options": {
@@ -319,7 +320,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 33
+        "y": 45
       },
       "id": 11,
       "options": {
