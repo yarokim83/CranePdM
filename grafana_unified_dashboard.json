@@ -318,6 +318,35 @@
           "refId": "A"
         }
       ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {},
+            "renameByName": {
+              "crane_id": "Crane ID"
+            }
+          }
+        },
+        {
+          "id": "groupBy",
+          "options": {
+            "fields": {
+              "crane_id": {
+                "aggregations": [],
+                "operation": "groupby"
+              },
+              "_value": {
+                "aggregations": [
+                  "max"
+                ],
+                "operation": "aggregate"
+              }
+            }
+          }
+        }
+      ],
       "title": "Daily Max Speed by Crane (peak_feedback)",
       "type": "barchart"
     },
