@@ -1,6 +1,7 @@
 # 🚀 CranePdM V1.0 배포 가이드
 
 > **배포 대상 PC**: `10.200.19.104`  
+> **설치 경로**: `C:\Users\huser\CranePdM`  
 > **작성일**: 2026-03-06  
 > **예상 소요 시간**: 약 30분  
 
@@ -78,19 +79,24 @@ pip --version
 
 ---
 
-## 4. 프로젝트 코드 다운로드
+## 4. 프로젝트 파일 복사
 
-### 방법 A: Git Clone (Git이 설치된 경우)
-```powershell
-cd C:\
-git clone https://github.com/yarokim83/CranePdM.git
-cd CranePdM
-```
+아래 4개 파일을 **새 PC의 `C:\Users\huser\CranePdM`** 폴더에 복사합니다.
 
-### 방법 B: ZIP 다운로드 (Git 없는 경우)
-1. 브라우저에서 https://github.com/yarokim83/CranePdM 접속
-2. 초록색 **"Code"** 버튼 → **"Download ZIP"** 클릭
-3. 다운로드된 ZIP을 `C:\CranePdM` 에 압축 해제
+| 파일 | 역할 |
+|---|---|
+| `crane_edge_logger.py` | PLC 데이터 수집 + KPI 계산 (핵심 프로그램) |
+| `docker-compose.yml` | InfluxDB + Grafana 컨테이너 설정 |
+| `grafana_unified_dashboard.json` | 대시보드 레이아웃 |
+| `requirements.txt` | Python 패키지 목록 |
+
+### 방법 A: USB 복사 (권장)
+1. 현재 PC의 프로젝트 폴더에서 위 4개 파일을 USB에 복사
+2. 새 PC에서 `C:\Users\huser\CranePdM` 폴더 생성
+3. USB에서 해당 폴더로 붙여넣기
+
+### 방법 B: 네트워크 공유 폴더
+현재 PC에서 프로젝트 폴더를 공유하고, 새 PC에서 접근하여 복사
 
 ---
 
@@ -98,7 +104,7 @@ cd CranePdM
 
 프로젝트 폴더에서 Docker Compose 실행:
 ```powershell
-cd C:\CranePdM
+cd C:\Users\huser\CranePdM
 docker compose up -d
 ```
 
@@ -158,7 +164,7 @@ $uid = $response[0].uid
 Write-Host "현재 데이터소스 UID: $uid"
 
 # 대시보드 JSON의 UID를 현재 값으로 교체
-(Get-Content "C:\CranePdM\grafana_unified_dashboard.json") -replace 'col_cranepdm', $uid | Set-Content "C:\CranePdM\grafana_unified_dashboard.json"
+(Get-Content "C:\Users\huser\CranePdM\grafana_unified_dashboard.json") -replace 'col_cranepdm', $uid | Set-Content "C:\Users\huser\CranePdM\grafana_unified_dashboard.json"
 Write-Host "대시보드 JSON UID 교체 완료: col_cranepdm → $uid"
 ```
 
@@ -192,7 +198,7 @@ Write-Host "대시보드 JSON UID 교체 완료: col_cranepdm → $uid"
 ### 7.1 Import
 1. Grafana 좌측 메뉴 → **Dashboards** → **New** → **Import**
 2. **"Upload dashboard JSON file"** 클릭
-3. `C:\CranePdM\grafana_unified_dashboard.json` 파일 선택
+3. `C:\Users\huser\CranePdM\grafana_unified_dashboard.json` 파일 선택
 4. **"Import"** 클릭
 
 ### 7.2 확인
@@ -216,13 +222,13 @@ pip install python-snap7
 
 ### 8.2 Python 패키지 설치
 ```powershell
-cd C:\CranePdM
+cd C:\Users\huser\CranePdM
 pip install -r requirements.txt
 ```
 
 ### 8.3 프로그램 실행
 ```powershell
-cd C:\CranePdM
+cd C:\Users\huser\CranePdM
 python crane_edge_logger.py
 ```
 
@@ -252,12 +258,12 @@ Docker Desktop 설정 → **General** → **"Start Docker Desktop when you sign 
 1. `Win + R` → `shell:startup` 입력 → Enter
 2. 열린 폴더에 바로가기 생성:
    - 우클릭 → 새로 만들기 → 바로 가기
-   - 위치: `pythonw C:\CranePdM\crane_edge_logger.py`
+   - 위치: `pythonw C:\Users\huser\CranePdM\crane_edge_logger.py`
    - 이름: `CranePdM Logger`
 
 **방법 B: Windows 작업 스케줄러** (안정적, 권장)
 ```powershell
-$action = New-ScheduledTaskAction -Execute "pythonw.exe" -Argument "C:\CranePdM\crane_edge_logger.py" -WorkingDirectory "C:\CranePdM"
+$action = New-ScheduledTaskAction -Execute "pythonw.exe" -Argument "C:\Users\huser\CranePdM\crane_edge_logger.py" -WorkingDirectory "C:\Users\huser\CranePdM"
 $trigger = New-ScheduledTaskTrigger -AtLogon
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1)
 Register-ScheduledTask -TaskName "CranePdM_Logger" -Action $action -Trigger $trigger -Settings $settings -Description "ARMGC Crane PdM Edge Logger" -RunLevel Highest
@@ -288,7 +294,7 @@ Register-ScheduledTask -TaskName "CranePdM_Logger" -Action $action -Trigger $tri
 |---|---|---|
 | 1 | Docker Desktop 설치 및 실행 | ☐ |
 | 2 | Python 3.11+ 설치 (PATH 추가) | ☐ |
-| 3 | 프로젝트 코드 다운로드 (`C:\CranePdM`) | ☐ |
+| 3 | 프로젝트 파일 복사 (`C:\Users\huser\CranePdM`) | ☐ |
 | 4 | `docker compose up -d` 실행 | ☐ |
 | 5 | Grafana 데이터소스 연결 (UID: `col_cranepdm`) | ☐ |
 | 6 | 대시보드 JSON Import | ☐ |
