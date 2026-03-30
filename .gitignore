@@ -1,0 +1,26 @@
+# Runtime data logs (auto-generated)
+*.csv
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment
+.env
+venv/
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+build/
+dist/
+*.spec
+tmp*.py
+__pycache__/
+*.exe
