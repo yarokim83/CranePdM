@@ -61,8 +61,8 @@
       },
       "gridPos": {
         "h": 5,
-        "w": 4,
-        "x": 0,
+        "w": 6,
+        "x": 18,
         "y": 0
       },
       "id": 1,
@@ -81,62 +81,7 @@
           "refId": "A"
         }
       ],
-      "title": "Wampfler GCR Stress(평균)",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "uid": "col_cranepdm"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "min": 0,
-          "max": 1000,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 200
-              },
-              {
-                "color": "red",
-                "value": 500
-              }
-            ]
-          }
-        }
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 5,
-        "x": 4,
-        "y": 0
-      },
-      "id": 9,
-      "options": {
-        "colorMode": "background",
-        "reduceOptions": {
-          "calcs": [
-            "mean"
-          ]
-        },
-        "textMode": "auto"
-      },
-      "targets": [
-        {
-          "query": "from(bucket: \"cranepdm_kpis\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\n  |> filter(fn: (r) => r[\"crane_id\"] == \"${Crane_ID}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"reducer_damage\" or r[\"_field\"] == \"shock_penalty\" or r[\"_field\"] == \"curr_penalty\" or r[\"_field\"] == \"track_penalty\")\n  |> pivot(rowKey:[\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({ r with _value: r.reducer_damage / (r.shock_penalty * r.curr_penalty * r.track_penalty) }))\n  |> keep(columns: [\"_time\", \"_value\"])\n  |> group()",
-          "refId": "A"
-        }
-      ],
-      "title": "기본피로도(토크 x 속도)",
+      "title": "4. Wampfler GCR Stress(평균)",
       "type": "stat"
     },
     {
@@ -169,8 +114,8 @@
       },
       "gridPos": {
         "h": 5,
-        "w": 5,
-        "x": 9,
+        "w": 6,
+        "x": 0,
         "y": 0
       },
       "id": 2,
@@ -188,7 +133,7 @@
           "refId": "A"
         }
       ],
-      "title": "기어 충격량(순간토크)",
+      "title": "1. 기어충격량(토크 기반)",
       "type": "stat"
     },
     {
@@ -223,8 +168,8 @@
       },
       "gridPos": {
         "h": 5,
-        "w": 5,
-        "x": 14,
+        "w": 6,
+        "x": 6,
         "y": 0
       },
       "id": 3,
@@ -242,7 +187,7 @@
           "refId": "A"
         }
       ],
-      "title": "케이블 마찰/장력 패널티(전류)",
+      "title": "2. 케이블/베어링 마찰",
       "type": "stat"
     },
     {
@@ -275,8 +220,8 @@
       },
       "gridPos": {
         "h": 5,
-        "w": 5,
-        "x": 19,
+        "w": 6,
+        "x": 12,
         "y": 0
       },
       "id": 4,
@@ -294,7 +239,7 @@
           "refId": "A"
         }
       ],
-      "title": "Gantry 속도오차(Order-Feedback)",
+      "title": "3. Gantry 속도오차(Order-Feedback)",
       "type": "stat"
     },
     {
@@ -312,7 +257,7 @@
       },
       "targets": [
         {
-          "query": "import \"math\"\n\nfrom(bucket: \"cranepdm_kpis\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\n  |> filter(fn: (r) => r[\"crane_id\"] == \"${Crane_ID}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"shock_penalty\" or r[\"_field\"] == \"curr_penalty\" or r[\"_field\"] == \"rms_error\" or r[\"_field\"] == \"max_error\")\n  |> group(columns: [\"_field\"])\n  |> mean()\n  |> group()\n  |> pivot(rowKey: [\"_start\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> map(fn: (r) => {\n      shock = if exists r.shock_penalty then r.shock_penalty else 1.0\n      curr = if exists r.curr_penalty then r.curr_penalty else 1.0\n      rms = if exists r.rms_error then r.rms_error else 0.0\n      max_e = if exists r.max_error then r.max_error else 0.0\n      return {\n        \"1.가감속충격\": if shock > 1.25 then \"⚠️충격량 높음(\" + string(v: math.round(x: shock * 100.0) / 100.0) + \") S커브 세팅 하향 권장\\n\\n💡[AI 상세분석] 인버터 S커브 설정이 너무 예민하여 기계 피로도를 높이고 있습니다. 가감속 타이밍을 부드럽게 재튜닝하세요.\" else \"✅양호(\" + string(v: math.round(x: shock * 100.0) / 100.0) + \")\",\n        \"2.케이블/장력마찰\": if curr > 1.35 then \"⚠️마찰/장력 초과(\" + string(v: math.round(x: curr * 100.0) / 100.0) + \") 케이블 엉킴/베어링 고착 점검\\n\\n💡[AI 상세분석] 릴 모터에 비정상적인 기계저항이 발생 중입니다. 케이블 센터 피드포인트 엉킴, 슬립링 마찰, 릴 감속기 베어링 고착 여부를 점검하세요.\" else \"✅정상(\" + string(v: math.round(x: curr * 100.0) / 100.0) + \")\",\n        \"3.Gantry제어오차\": if max_e > 6000.0 then \"⚠️순간오차 심각(\" + string(v: math.round(x: max_e)) + \") 갠트리 브레이크 개방 타이밍 점검 요망\\n\\n💡[AI 상세분석] 기동/정지 시 갠트리 브레이크 개방 지연 등으로 갠트리가 반복적으로 튀고 있습니다. 이는 케이블 릴에 심각한 장력 타격을 줍니다.\" else if rms > 2500.0 then \"⚠️만성 속도지연(\" + string(v: math.round(x: rms)) + \") 갠트리 인버터 PI게인 튜닝\\n\\n💡[AI 상세분석] 갠트리가 지령 속도를 따라가지 못해 케이블 장력 스윙(출렁임)의 원인이 됩니다. 인버터 PI 게인(비례/적분)을 상향 조정하세요.\" else \"✅양호(RMS:\" + string(v: math.round(x: rms)) + \")\",\n        \"4.종합판단\": if shock > 1.25 and curr > 1.35 then \"🚨[AI 경고] 케이블 장력 쇼크 + 권취 마찰 동시 발생!\\n기어박스 파손 및 케이블 단선 위험이 큽니다. 시급한 점검 요망.\" else if shock > 1.25 or curr > 1.35 or max_e > 6000.0 or rms > 2500.0 then \"⚠️이상 징후 감지됨\\n(해당 항목의 AI 진단결과 참조)\" else \"🟢[AI 안심진단] 매우 양호함\\n현재 케이블 릴 구동 밸런스가 최상입니다.\"\n      }\n  })",
+          "query": "import \"math\"\n\nfrom(bucket: \"cranepdm_kpis\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\n  |> filter(fn: (r) => r[\"crane_id\"] == \"${Crane_ID}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"shock_penalty\" or r[\"_field\"] == \"curr_penalty\" or r[\"_field\"] == \"rms_error\" or r[\"_field\"] == \"max_error\")\n  |> group(columns: [\"_field\"])\n  |> mean()\n  |> group()\n  |> pivot(rowKey: [\"_start\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> map(fn: (r) => {\n      shock = if exists r.shock_penalty then r.shock_penalty else 1.0\n      curr = if exists r.curr_penalty then r.curr_penalty else 1.0\n      rms = if exists r.rms_error then r.rms_error else 0.0\n      max_e = if exists r.max_error then r.max_error else 0.0\n      return {\n        \"1. 기어충격량(토크 기반)\": if shock > 1.25 then \"⚠️충격량 높음(\" + string(v: math.round(x: shock * 100.0) / 100.0) + \") S커브 세팅 하향 권장\\n\\n💡[AI 상세분석] 인버터 S커브 설정이 너무 예민하여 기계 피로도를 높이고 있습니다. 가감속 타이밍을 부드럽게 재튜닝하세요.\" else \"✅양호(\" + string(v: math.round(x: shock * 100.0) / 100.0) + \")\",\n        \"2. 케이블/베어링 마찰\": if curr > 1.35 then \"⚠️마찰/장력 초과(\" + string(v: math.round(x: curr * 100.0) / 100.0) + \") 케이블 엉킴/베어링 고착 점검\\n\\n💡[AI 상세분석] 릴 모터에 비정상적인 기계저항이 발생 중입니다. 케이블 센터 피드포인트 엉킴, 슬립링 마찰, 릴 감속기 베어링 고착 여부를 점검하세요.\" else \"✅정상(\" + string(v: math.round(x: curr * 100.0) / 100.0) + \")\",\n        \"3. Gantry 속도오차(Order-Feedback)\": if max_e > 6000.0 then \"⚠️순간오차 심각(\" + string(v: math.round(x: max_e)) + \") 갠트리 브레이크 개방 타이밍 점검 요망\\n\\n💡[AI 상세분석] 기동/정지 시 갠트리 브레이크 개방 지연 등으로 갠트리가 반복적으로 튀고 있습니다. 이는 케이블 릴에 심각한 장력 타격을 줍니다.\" else if rms > 2500.0 then \"⚠️만성 속도지연(\" + string(v: math.round(x: rms)) + \") 갠트리 인버터 PI게인 튜닝\\n\\n💡[AI 상세분석] 갠트리가 지령 속도를 따라가지 못해 케이블 장력 스윙(출렁임)의 원인이 됩니다. 인버터 PI 게인(비례/적분)을 상향 조정하세요.\" else \"✅양호(RMS:\" + string(v: math.round(x: rms)) + \")\",\n        \"4. 종합판단\": if shock > 1.25 and curr > 1.35 then \"🚨[AI 경고] 케이블 장력 쇼크 + 권취 마찰 동시 발생!\\n기어박스 파손 및 케이블 단선 위험이 큽니다. 시급한 점검 요망.\" else if shock > 1.25 or curr > 1.35 or max_e > 6000.0 or rms > 2500.0 then \"⚠️이상 징후 감지됨\\n(해당 항목의 AI 진단결과 참조)\" else \"🟢[AI 안심진단] 매우 양호함\\n현재 케이블 릴 구동 밸런스가 최상입니다.\"\n      }\n  })",
           "refId": "A"
         }
       ],
@@ -486,7 +431,24 @@
       },
       "id": 14,
       "options": {
-        "seriesMapping": "auto"
+        "seriesMapping": "manual",
+        "series": [
+          {
+            "name": "1. 마찰 저항(전류)",
+            "x": "0. Gantry Position (m)",
+            "y": "1. 마찰 저항(전류)"
+          },
+          {
+            "name": "2. 최대 기어 충격량(Peak)",
+            "x": "0. Gantry Position (m)",
+            "y": "2. 최대 기어 충격량(Peak)"
+          },
+          {
+            "name": "3. Gantry 속도오차(평균)",
+            "x": "0. Gantry Position (m)",
+            "y": "3. Gantry 속도오차(평균)"
+          }
+        ]
       },
       "description": "어느 위치에서 케이블 마찰(저항)과 충격(장력)이 극심하게 발생하는지 갠트리 제어 구역과 일치하는지 파악하는 통합 핫스팟 차트입니다.\n▶ 센터(Center) 피드 포인트나 특정 레일 장애물 구간에서 데이터가 동시다발적으로 치솟는지 집중 확인하세요.\n\n▶ 데이터 라벨: 전류 마찰 저항 / 최대 장력 충격량 / 갠트리 속도 오차",
       "targets": [

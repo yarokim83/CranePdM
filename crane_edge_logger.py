@@ -120,7 +120,7 @@ def set_autostart(enabled):
                 pass
         winreg.CloseKey(key)
     except Exception as e:
-        sync_print(f"⚠️ Failed to set autostart: {e}")
+        sync_print(f"[!] Failed to set autostart: {e}")
 
 def is_autostart_enabled():
     if not winreg: return False
@@ -162,7 +162,7 @@ def setup_tray():
         else:
             image = Image.new('RGB', (64, 64), color=(73, 109, 137))
     except Exception as e:
-        sync_print(f"⚠️ Failed to load icon: {e}")
+        sync_print(f"[!] Failed to load icon: {e}")
         image = Image.new('RGB', (64, 64), color=(73, 109, 137))
 
     menu = pystray.Menu(
@@ -359,9 +359,9 @@ def log_fault_event(crane_id, fault_name, position):
             .field("position", float(position))
         )
         write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=point)
-        sync_print(f"🚨 [{ts}] [{crane_id}] {fault_name} Triggered! Logged at Pos: {position}")
+        sync_print(f"[FAULT] [{ts}] [{crane_id}] {fault_name} Triggered! Logged at Pos: {position}")
     except Exception as e:
-        sync_print(f"⚠️ [{crane_id}] Fault InfluxDB Error: {e}")
+        sync_print(f"[!] [{crane_id}] Fault InfluxDB Error: {e}")
 
 def monitor_crane(crane_config):
     crane_id = crane_config['id']
@@ -397,7 +397,7 @@ def monitor_crane(crane_config):
                 time.sleep(IDLE_POLL_RATE)
                 continue
             # Movement Detected -> Switch to Active Logging
-            sync_print(f"\n🚀 [{crane_id}] Movement! Order: {current_order}. Recording...")
+            sync_print(f"\n[MOVE] [{crane_id}] Movement! Order: {current_order}. Recording...")
             orders, feedbacks, loads, weights, positions, dt_list, db170_list = [], [], [], [], [], [], []
             last_time = time.time()
             
@@ -450,11 +450,11 @@ def monitor_crane(crane_config):
                     
                     # Stop Condition: Order speed returns near 0
                     if abs(current_order) < SPEED_THRESHOLD:
-                        sync_print(f"🛑 [{crane_id}] Stopped. Analyzing {len(orders)} points...")
+                        sync_print(f"[STOP] [{crane_id}] Stopped. Analyzing {len(orders)} points...")
                         break
                         
                 except Exception as ex_read:
-                    sync_print(f"⚠️ [{crane_id}] Read error: {ex_read}")
+                    sync_print(f"[!] [{crane_id}] Read error: {ex_read}")
                     break
                 
                 # Maintain active poll rate
@@ -476,7 +476,7 @@ def monitor_crane(crane_config):
                         dump_raw_anomaly(crane_id, kpis, orders, feedbacks, positions, dt_list, db170_list)
                     
         except Exception as e:
-            sync_print(f"⚠️ [{crane_id}] Connection error: {e}. Retrying in 5 seconds...")
+            sync_print(f"[!] [{crane_id}] Connection error: {e}. Retrying in 5 seconds...")
             try:
                 client.disconnect()
             except:

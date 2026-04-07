@@ -238,6 +238,71 @@
               "mode": "line"
             },
             "drawStyle": "line",
+            "lineWidth": 3,
+            "fillOpacity": 15,
+            "pointSize": 6,
+            "showPoints": "always"
+          }
+        }
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 7
+      },
+      "id": 12,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "query": "from(bucket: \"cranepdm_kpis\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\r\n  |> filter(fn: (r) => r[\"crane_id\"] =~ /${Crane_ID:regex}/)\r\n  |> filter(fn: (r) => r[\"_field\"] == \"reducer_damage\")\r\n  |> group(columns: [\"crane_id\"])\r\n  |> aggregateWindow(every: 1d, fn: mean, createEmpty: false)",
+          "refId": "A"
+        }
+      ],
+      "title": "📅 ARMGC 일일 평균 Stress 트렌드 (호기별 일일 변화추이)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "uid": "col_cranepdm"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "displayName": "${__field.labels.crane_id}",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 200
+              },
+              {
+                "color": "red",
+                "value": 500
+              }
+            ]
+          },
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "line"
+            },
+            "drawStyle": "line",
             "lineWidth": 2,
             "fillOpacity": 10,
             "pointSize": 5,
@@ -249,7 +314,7 @@
         "h": 12,
         "w": 24,
         "x": 0,
-        "y": 7
+        "y": 17
       },
       "id": 11,
       "options": {
