@@ -49,11 +49,11 @@
               },
               {
                 "color": "orange",
-                "value": 200
+                "value": 10
               },
               {
                 "color": "red",
-                "value": 500
+                "value": 15
               }
             ]
           }
@@ -77,11 +77,11 @@
       },
       "targets": [
         {
-          "query": "from(bucket: \"cranepdm_kpis\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\n  |> filter(fn: (r) => r[\"crane_id\"] == \"${Crane_ID}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"reducer_damage\")\n  |> group()",
+          "query": "from(bucket: \"cranepdm_kpis\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\n  |> filter(fn: (r) => r[\"crane_id\"] == \"${Crane_ID}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"shock_penalty\" or r[\"_field\"] == \"curr_penalty\" or r[\"_field\"] == \"track_penalty\")\n  |> pivot(rowKey:[\"_time\", \"crane_id\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({ r with _value: r.shock_penalty * r.curr_penalty * r.track_penalty }))\n  |> group()",
           "refId": "A"
         }
       ],
-      "title": "4. Wampfler GCR Stress(평균)",
+      "title": "4. Stress Index (평균)",
       "type": "stat"
     },
     {
@@ -102,11 +102,11 @@
               },
               {
                 "color": "orange",
-                "value": 2.0
+                "value": 20.0
               },
               {
                 "color": "red",
-                "value": 8.0
+                "value": 25.0
               }
             ]
           }
@@ -187,7 +187,7 @@
           "refId": "A"
         }
       ],
-      "title": "2. 케이블/베어링 마찰",
+      "title": "2. 케이블/베어링 마찰(전류기반)",
       "type": "stat"
     },
     {
@@ -332,17 +332,44 @@
       },
       "id": 11,
       "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        },
         "seriesMapping": "auto"
       },
       "description": "충격량 (Shock Penalty) 공식\n충격량 = 1.0 + ( 0.06 × |순간 토크 변화량 ÷ 시간 변화량| )\n\n(영어 표기: 1.0 + 0.06 × |ΔTorque / Δt|)\n\n[공식 해석]\n기본값 1.0: 정상적으로 부드럽게 주행할 때는 충격 페널티가 \"1배(영향 없음)\"\n|순간 토크 변화량 / 시간 변화량|: 아주 짧은 시간(Δt, 약 0.1초) 동안, 케이블 릴 모터 출력 토크(Torque)가 얼마나 튀었는가(Tension Peak)를 나타냅니다.\n상수 0.06: 토크가 튄 값을 기어의 데미지 비율로 환산해주는 스케일링 계수",
       "targets": [
         {
-          "query": "from(bucket: \"cranepdm_kpis\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\n  |> filter(fn: (r) => r[\"crane_id\"] == \"${Crane_ID}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"duration_s\" or r[\"_field\"] == \"shock_penalty\")\n  |> pivot(rowKey:[\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      \"0. 주행 시간(s)\": if exists r.duration_s then r.duration_s else 0.0,\n      \"1. 평균 충격량\": if exists r.shock_penalty then r.shock_penalty else 1.0\n  }))",
+          "query": "from(bucket: \"cranepdm_kpis\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\n  |> filter(fn: (r) => r[\"crane_id\"] == \"${Crane_ID}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"duration_s\" or r[\"_field\"] == \"shock_penalty\")\n  |> pivot(rowKey:[\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> filter(fn: (r) => exists r.duration_s)\n  |> map(fn: (r) => ({\n      \"0. 주행 시간(s)\": if exists r.duration_s then r.duration_s else 0.0,\n      \"1. 평균 충격량\": if exists r.shock_penalty then r.shock_penalty else 1.0\n  }))",
           "refId": "A"
         }
       ],
       "title": "1. 주행 시간에 따른 기어충격량",
-      "type": "xychart"
+      "type": "xychart",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "_time": true
+            },
+            "indexByName": {
+              "_time": 0,
+              "0. 주행 시간(s)": 1,
+              "1. 평균 충격량": 2
+            },
+            "renameByName": {}
+          }
+        }
+      ]
     },
     {
       "datasource": {
@@ -365,17 +392,44 @@
       },
       "id": 12,
       "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        },
         "seriesMapping": "auto"
       },
       "description": "운전 속도(Max Order Speed)에 따라 주행 중 발생한 '최대 한 번의 충격(Peak Shock)'을 분석합니다. 특정 속도에서 유독 충격이 높다면 인버터 S커브나 기계적 공진을 점검해야 합니다.\n\n▶ X축: Gantry 최고 지시 속도\n▶ Y축: 주행 중 발생한 최대 충격량(Peak)",
       "targets": [
         {
-          "query": "from(bucket: \"cranepdm_kpis\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\n  |> filter(fn: (r) => r[\"crane_id\"] == \"${Crane_ID}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"peak_order\" or r[\"_field\"] == \"peak_shock\")\n  |> pivot(rowKey:[\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      \"0. Max order Speed\": if exists r.peak_order then r.peak_order else 0.0,\n      \"1. Peak Shock Penalty\": if exists r.peak_shock then r.peak_shock else 1.0\n  }))",
+          "query": "from(bucket: \"cranepdm_kpis\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\n  |> filter(fn: (r) => r[\"crane_id\"] == \"${Crane_ID}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"peak_order\" or r[\"_field\"] == \"peak_shock\")\n  |> pivot(rowKey:[\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> filter(fn: (r) => exists r.peak_order)\n  |> map(fn: (r) => ({\n      \"0. Max order Speed\": if exists r.peak_order then r.peak_order else 0.0,\n      \"1. Peak Shock Penalty\": if exists r.peak_shock then r.peak_shock else 1.0\n  }))",
           "refId": "A"
         }
       ],
       "title": "2. Max Order Speed 에 따른 최대 충격량(Peak) [Uncapped]",
-      "type": "xychart"
+      "type": "xychart",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "_time": true
+            },
+            "indexByName": {
+              "_time": 0,
+              "0. Max order Speed": 1,
+              "1. Peak Shock Penalty": 2
+            },
+            "renameByName": {}
+          }
+        }
+      ]
     },
     {
       "datasource": {
@@ -398,17 +452,45 @@
       },
       "id": 13,
       "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        },
         "seriesMapping": "auto"
       },
       "description": "갠트리 주행 레일 위치별 속도 제어 오차를 분석합니다. 특정 위치에서 반복되는 갠트리 제어 이상(급정거, 튀김)은 곧 케이블 릴에 치명적인 장력 충격을 유발하는 '1차적 원인'이 됩니다. 어느 레일 위치를 지날 때 오차가 발생하는지 추적하세요.\n\n▶ X축: Gantry Position(m)\n▶ 데이터: Max 오차(순간최대), 평균 오차(RMS)",
       "targets": [
         {
-          "query": "from(bucket: \"cranepdm_kpis\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\n  |> filter(fn: (r) => r[\"crane_id\"] == \"${Crane_ID}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"max_error\" or r[\"_field\"] == \"rms_error\" or r[\"_field\"] == \"avg_pos\")\n  |> pivot(rowKey:[\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({\n      \"0. Gantry Position (m)\": if exists r.avg_pos then r.avg_pos else 0.0,\n      \"1. Max 오차\": if exists r.max_error then r.max_error else 0.0,\n      \"2. 평균 오차\": if exists r.rms_error then r.rms_error else 0.0\n  }))",
+          "query": "from(bucket: \"cranepdm_kpis\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\n  |> filter(fn: (r) => r[\"crane_id\"] == \"${Crane_ID}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"max_error\" or r[\"_field\"] == \"rms_error\" or r[\"_field\"] == \"avg_pos\")\n  |> pivot(rowKey:[\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> filter(fn: (r) => exists r.avg_pos)\n  |> map(fn: (r) => ({\n      \"0. Gantry Position (m)\": if exists r.avg_pos then r.avg_pos else 0.0,\n      \"1. Max 오차\": if exists r.max_error then r.max_error else 0.0,\n      \"2. 평균 오차\": if exists r.rms_error then r.rms_error else 0.0\n  }))",
           "refId": "A"
         }
       ],
       "title": "⚠️ 3. Gantry 위치별 속도오차",
-      "type": "xychart"
+      "type": "xychart",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "_time": true
+            },
+            "indexByName": {
+              "_time": 0,
+              "0. Gantry Position (m)": 1,
+              "1. Max 오차": 2,
+              "2. 평균 오차": 3
+            },
+            "renameByName": {}
+          }
+        }
+      ]
     },
     {
       "datasource": {
@@ -431,34 +513,46 @@
       },
       "id": 14,
       "options": {
-        "seriesMapping": "manual",
-        "series": [
-          {
-            "name": "1. 마찰 저항(전류)",
-            "x": "0. Gantry Position (m)",
-            "y": "1. 마찰 저항(전류)"
-          },
-          {
-            "name": "2. 최대 기어 충격량(Peak)",
-            "x": "0. Gantry Position (m)",
-            "y": "2. 최대 기어 충격량(Peak)"
-          },
-          {
-            "name": "3. Gantry 속도오차(평균)",
-            "x": "0. Gantry Position (m)",
-            "y": "3. Gantry 속도오차(평균)"
-          }
-        ]
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        },
+        "seriesMapping": "auto"
       },
       "description": "어느 위치에서 케이블 마찰(저항)과 충격(장력)이 극심하게 발생하는지 갠트리 제어 구역과 일치하는지 파악하는 통합 핫스팟 차트입니다.\n▶ 센터(Center) 피드 포인트나 특정 레일 장애물 구간에서 데이터가 동시다발적으로 치솟는지 집중 확인하세요.\n\n▶ 데이터 라벨: 전류 마찰 저항 / 최대 장력 충격량 / 갠트리 속도 오차",
       "targets": [
         {
-          "query": "from(bucket: \"cranepdm_kpis\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\n  |> filter(fn: (r) => r[\"crane_id\"] == \"${Crane_ID}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"curr_penalty\" or r[\"_field\"] == \"peak_shock\" or r[\"_field\"] == \"rms_error\" or r[\"_field\"] == \"avg_pos\")\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> drop(columns: [\"_start\", \"_stop\", \"_measurement\", \"crane_id\", \"algo_version\", \"is_loaded\"])\n  |> map(fn: (r) => ({\n      _time: r._time,\n      \"0. Gantry Position (m)\": r.avg_pos,\n      \"1. 마찰 저항(전류)\": if exists r.curr_penalty then r.curr_penalty else 1.0,\n      \"2. 최대 기어 충격량(Peak)\": if exists r.peak_shock then r.peak_shock else 1.0,\n      \"3. Gantry 속도오차(평균)\": (if exists r.rms_error then r.rms_error else 0.0) / 4000.0 + 1.0\n  }))",
+          "query": "from(bucket: \"cranepdm_kpis\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\n  |> filter(fn: (r) => r[\"crane_id\"] == \"${Crane_ID}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"curr_penalty\" or r[\"_field\"] == \"peak_shock\" or r[\"_field\"] == \"rms_error\" or r[\"_field\"] == \"avg_pos\" or r[\"_field\"] == \"peak_shock_pos\")\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> filter(fn: (r) => exists r.avg_pos or exists r.peak_shock_pos)\n  |> drop(columns: [\"_start\", \"_stop\", \"_measurement\", \"crane_id\", \"algo_version\", \"is_loaded\"])\n  |> map(fn: (r) => ({\n      _time: r._time,\n      \"0. Gantry Position (m)\": if exists r.peak_shock_pos then r.peak_shock_pos else r.avg_pos,\n      \"1. 마찰 저항(전류)\": if exists r.curr_penalty then r.curr_penalty else 1.0,\n      \"2. 최대 기어 충격량(Peak)\": if exists r.peak_shock then r.peak_shock else 1.0,\n      \"3. Gantry 속도오차(평균)\": (if exists r.rms_error then r.rms_error else 0.0) / 4000.0 + 1.0\n  }))",
           "refId": "A"
         }
       ],
       "title": "📍 4. Gantry Position 별 데이터",
-      "type": "xychart"
+      "type": "xychart",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "_time": true
+            },
+            "indexByName": {
+              "_time": 0,
+              "0. Gantry Position (m)": 1,
+              "1. 마찰 저항(전류)": 2,
+              "2. 최대 기어 충격량(Peak)": 3,
+              "3. Gantry 속도오차(평균)": 4
+            },
+            "renameByName": {}
+          }
+        }
+      ]
     }
   ],
   "schemaVersion": 39,

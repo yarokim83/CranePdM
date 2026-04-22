@@ -68,7 +68,7 @@ CRANES = [
 # Logging Configuration
 CSV_FILE = 'crane_kpi_log.csv'
 IDLE_POLL_RATE = 0.5    # Seconds between checks when idle
-ACTIVE_POLL_RATE = 0.1  # Seconds between checks when moving (10Hz)
+ACTIVE_POLL_RATE = 0.1  # Version 2.4 - Speed-Normalized Penalties and Geo-fencing (10Hz)
 SPEED_THRESHOLD = 50    # Minimum speed to trigger 'movement' event
 
 # InfluxDB Configuration
@@ -215,6 +215,7 @@ def calculate_kpis(orders, feedbacks, loads, weights, positions, dt_list, db170_
     total_reducer_damage = 0
     sum_shock, sum_curr, sum_track = 0, 0, 0
     peak_shock = 1.0
+    peak_shock_pos = positions[0] if positions else 0.0
     peak_order = max(map(abs, orders))
     peak_fb = max(map(abs, feedbacks))
 
@@ -237,30 +238,36 @@ def calculate_kpis(orders, feedbacks, loads, weights, positions, dt_list, db170_
         # Base Fatigue (Miner's Rule) + V2.2 GCR Profile (Weight factor is 1.0)
         base_fatigue = (abs(v2_torque) ** 3) * abs(v2_speed) / 1000000.0 * weight_factor
 
-        # Dynamic Shock Penalty (Cap at 10.0 for damage calc, but uncap for peak_shock logging)
-        # V2.3: Sensitivity set to 0.06 to balance precision and uncap for Peak Shock trend
+        # V2.4: Speed-Normalized Shock Penalty
         torque_deriv = (v2_torque - prev_v2_torque) / dt
         raw_shock = 1.0 + 0.06 * abs(torque_deriv)
-        shock_penalty = min(MAX_INDIVIDUAL_PENALTY, raw_shock)
+        speed_factor_shock = max(0.3, abs(v2_speed) / 10000.0)
+        shock_penalty = 1.0 + (raw_shock - 1.0) / speed_factor_shock
 
-        # Control Anomaly Penalty A — Current vs Torque ratio (Cap at 10.0)
-        # Ratio > 0.2 indicates high mechanical resistance relative to torque
-        # Added threshold: Ignore AC magnetizing current false-positives when under no-load
+        # V2.4: Speed-Normalized Current Penalty
         if abs(v2_torque) > 10.0:
             curr_ratio = abs(v2_current) / (abs(v2_torque) + 0.1)
-            curr_penalty = min(MAX_INDIVIDUAL_PENALTY, 1.0 + 5.0 * max(0, curr_ratio - CURR_THRESHOLD))
+            raw_curr_penalty = 1.0 + 5.0 * max(0, curr_ratio - CURR_THRESHOLD)
+            speed_factor_curr = max(0.5, abs(v2_speed) / 10000.0)
+            curr_penalty = 1.0 + (raw_curr_penalty - 1.0) / speed_factor_curr
         else:
             curr_penalty = 1.0
 
         # Control Anomaly Penalty B — Speed tracking error (Cap at 10.0)
-        # V2.1: Use higher TRACK_GATE(500) and TRACK_SCALE(5.0) to stabilize noise
         if abs(order) > TRACK_GATE:
             tracking_error_ratio = abs_err / (abs(order) + TRACK_EPSILON)
-            tracking_penalty = min(MAX_INDIVIDUAL_PENALTY, 1.0 + TRACK_SCALE * max(0, tracking_error_ratio - 0.05))
+            tracking_penalty = 1.0 + TRACK_SCALE * max(0, tracking_error_ratio - 0.05)
         else:
             tracking_penalty = 1.0
 
-        total_penalty = min(MAX_TOTAL_PENALTY, shock_penalty * curr_penalty * tracking_penalty)
+        # V2.4: Geo-fenced Track Penalty (Danger Zone 2400-2700m)
+        curr_pos = positions[i] if positions else 0.0
+        if 2400.0 <= curr_pos <= 2700.0:
+            geo_penalty = 2.0
+        else:
+            geo_penalty = 1.0
+
+        total_penalty = shock_penalty * curr_penalty * tracking_penalty * geo_penalty
         instant_damage = base_fatigue * total_penalty * 0.001
         total_reducer_damage += instant_damage
         
@@ -268,7 +275,9 @@ def calculate_kpis(orders, feedbacks, loads, weights, positions, dt_list, db170_
         sum_curr += curr_penalty
         sum_track += tracking_penalty
         # V2.3: Record the TRUE unbounded shock severity for maintenance insight
-        peak_shock = max(peak_shock, raw_shock)
+        if raw_shock > peak_shock:
+            peak_shock = raw_shock
+            peak_shock_pos = positions[i]
 
     rms_error = math.sqrt(sum_sq_err / len(orders))
     event_duration = sum(dt_list)
@@ -277,7 +286,7 @@ def calculate_kpis(orders, feedbacks, loads, weights, positions, dt_list, db170_
     avg_track = sum_track / (len(orders)-1)
 
     return {
-        'algo_version': '2.3',
+        'algo_version': '2.4',
         'duration': round(event_duration, 2),
         'peak_order': peak_order,
         'peak_fb': peak_fb,
@@ -288,6 +297,7 @@ def calculate_kpis(orders, feedbacks, loads, weights, positions, dt_list, db170_
         'is_loaded': is_loaded,
         'shock_penalty': round(avg_shock, 3),
         'peak_shock': round(peak_shock, 3),
+        'peak_shock_pos': round(peak_shock_pos, 1),
         'curr_penalty': round(avg_curr, 3),
         'track_penalty': round(avg_track, 3),
         'start_pos': positions[0],
@@ -317,7 +327,8 @@ def log_event(crane_id, kpis):
             kpis['track_penalty'],
             kpis['start_pos'],
             kpis['end_pos'],
-            kpis['avg_pos']
+            kpis['avg_pos'],
+            kpis['peak_shock_pos']
         ])
         
     try:
@@ -340,6 +351,7 @@ def log_event(crane_id, kpis):
             .field("start_pos", float(kpis['start_pos']))
             .field("end_pos", float(kpis['end_pos']))
             .field("avg_pos", float(kpis['avg_pos']))
+            .field("peak_shock_pos", float(kpis['peak_shock_pos']))
         )
         write_api.write(bucket=INFLUX_BUCKET, org=INFLUX_ORG, record=point)
         influx_status = "InfluxDB OK"

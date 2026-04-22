@@ -1,9 +1,9 @@
-# 🔧 감속기 스트레스 계산 알고리즘 기술 문서 (V2.2)
+# 🔧 감속기 스트레스 계산 알고리즘 기술 문서 (V2.4)
 
 > **프로젝트**: CranePdM V2.0 — ARMGC 케이블 릴(GCR) 감속기 예지정비 시스템  
 > **핵심 파일**: `crane_edge_logger.py` → `calculate_kpis()` 함수  
-> **알고리즘 버전**: V2.3 (Peak Shock 무제한 확장 버전)  
-> **최종 수정일**: 2026-03-29  
+> **알고리즘 버전**: V2.4 (속도 보정 및 지오펜싱 위치 기반 페널티 버전)  
+> **최종 수정일**: 2026-04-22  
 
 ---
 
@@ -76,7 +76,7 @@ db170_list의 모든 샘플이 유효한 경우에만 이벤트 기록
 
 ### 전체 공식 (한 줄 요약)
 ```
-reducer_damage = Σ [ Base_Fatigue × Shock_Penalty × Current_Penalty × Tracking_Penalty ]
+reducer_damage = Σ [ Base_Fatigue × Shock_Penalty × Current_Penalty × Tracking_Penalty × Geo_Penalty ]
 ```
 
 ---
@@ -97,26 +97,29 @@ Base_Fatigue = (|Torque(%)|³ × |Speed(m/min)|) / 1,000,000
 
 ---
 
-### Step 2: 동역학적 충격 페널티 — Shock Penalty (V2.3)
+### Step 2: 동역학적 속도 보정 충격 페널티 — Speed-Normalized Shock Penalty (V2.4)
 
 ```
-Ratio = 1.0 + 0.06 × |ΔTorque / Δt|
-Shock_Penalty (합산용) = min(10.0, Ratio)
-Peak_Shock (기록용) = 무제한 (Ratio 그대로 표출)
+Raw_Shock = 1.0 + 0.06 × |ΔTorque / Δt|
+Speed_Factor = max(0.3, |Speed| / 10000.0)
+Shock_Penalty (합산용) = min(10.0, 1.0 + (Raw_Shock - 1.0) / Speed_Factor)
+Peak_Shock (기록용) = 무제한 (Raw_Shock 그대로 표출)
 ```
 
-> **V2.3 변경**: 전체 데미지를 왜곡하지 않기 위해 공식 합산용 페널티는 10.0으로 제한(Capping)하지만, 최고 순간 충격량 지표인 `Peak_Shock`은 제한을 해제(Uncapping)하여 실제 충격의 크기(예: 30, 50)를 끝까지 추적합니다. 감도는 0.06으로 튜닝되었습니다.
+> **V2.4 변경**: 저속 주행 시 발생하는 토크 튐(Shock)은 고속 주행 시보다 훨씬 치명적(기어 유격 심화)이므로, 속도가 느릴수록(Speed_Factor가 작을수록) 충격 페널티를 최대 3배까지 증폭시킵니다. 최고 순간 충격량 지표인 `Peak_Shock`은 V2.3과 동일하게 순수 물리 타격량을 기록합니다.
 
 ---
 
-### Step 3A: 기계적 저항 페널티 — Current/Torque Ratio
+### Step 3A: 속도 보정 기계적 저항 페널티 — Speed-Normalized Current Penalty (V2.4)
 
 ```
 Current_Ratio = |Current(A)| / (|Torque(%)| + 0.1)
-Current_Penalty = min(10.0, 1.0 + 5.0 × max(0, Current_Ratio - 0.2))
+Raw_Curr_Penalty = 1.0 + 5.0 × max(0, Current_Ratio - 0.2)
+Speed_Factor = max(0.5, |Speed| / 10000.0)
+Current_Penalty = min(10.0, 1.0 + (Raw_Curr_Penalty - 1.0) / Speed_Factor)
 ```
 
-> 토크(요구 출력, %) 대비 전류(소모 전력, A)가 비정상적으로 크다면, **베어링 마모 / 레일 이물질 / 구동계 저항 증가**의 강력한 신호입니다. 임계값을 0.2로 낮춰 민감도를 개선했습니다. (최대 10배 제한)
+> **V2.4 변경**: 토크 대비 전류가 높을 뿐만 아니라, 속도가 느린데도 불구하고 전류를 많이 소모한다면 강력한 기계적 마찰(쇳가루 등)의 증거입니다. 따라서 속도가 느릴수록 전류 이상 페널티를 최대 2배까지 증폭시킵니다.
 
 ---
 
@@ -136,10 +139,23 @@ Else:
 
 ---
 
+### Step 3C: 지오펜싱 위치 페널티 — Geo-fenced Track Penalty (V2.4)
+
+```
+If 2,400m <= Position <= 2,700m:
+    Geo_Penalty = 2.0
+Else:
+    Geo_Penalty = 1.0
+```
+
+> **V2.4 도입**: 232호기 파손 사건 분석을 통해 항만 내 모든 크레인이 공통적으로 2,400m~2,700m 구간에서 11G 이상의 거대한 물리적 타격을 받는 것으로 증명되었습니다. 따라서 이 구간(지뢰밭)에 진입하면 무조건 2배의 페널티를 곱하여 피로도 누적을 2배 가속합니다.
+
+---
+
 ### Step 4: 누적 합산 및 최종 제한(Capping)
 
 ```
-Total_Penalty = min(20.0, Shock_Penalty × Current_Penalty × Tracking_Penalty)
+Total_Penalty = min(20.0, Shock_Penalty × Current_Penalty × Tracking_Penalty × Geo_Penalty)
 Instant_Damage = Base_Fatigue × Total_Penalty × 0.001
 Total_Reducer_Damage = Σ(Instant_Damage[i])
 ```
@@ -193,6 +209,11 @@ graph TD
 | `avg_weight` | 톤(t) | 평균 화물 중량 |
 | `is_loaded` | bool | 적재 여부 |
 | `avg_pos` | - | 평균 갠트리 위치 |
+| `peak_shock_pos` | - | **최대 충격(Peak Shock) 발생 시점의 정확한 레일 위치** |
+| `peak_shock` | G | 최대 순간 충격량 |
+| `shock_penalty` | - | 평균 충격 페널티 |
+| `curr_penalty` | - | 평균 전류/마찰 페널티 |
+| `track_penalty` | - | 평균 갠트리 속도 오차 페널티 |
 
 ---
 
