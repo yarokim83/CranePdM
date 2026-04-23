@@ -1,35 +1,31 @@
 ===========================================================
-  CranePdM V2.0 - 신규 PC 이관(설치) 가이드
+  CranePdM V2.4 - 통합 현장 배포 패키지 (2026-04-23)
 ===========================================================
 
-이 폴더(deploy_package)를 그대로 복사하여 신규 PC 바탕화면에 붙여넣어 주세요.
-신규 PC는 현장에 연결될 컴퓨터이면서, 동시에 서버(DB+대시보드) 역할을 수행합니다.
+이 폴더(deploy_package)는 크레인 PLC 데이터 수집 및 예지 정비를 위한 최신 V2.4 통합 팩입니다.
+기존의 '단순 데미지' 합산 방식에서 벗어나, '주행 속도 보정형 페널티' 및 '지오펜싱(고위험 구간 가중치)'이 적용된 
+최첨단 Stress Index 모델이 탑재되어 있습니다.
 
 [설치 및 실행 절차]
 
-1. Docker Desktop 설치
-   - 신규 PC에 Docker Desktop이 설치되어 있지 않다면 설치해 주세요. (https://www.docker.com/products/docker-desktop/)
+1. Docker Desktop 실행
+   - 이미 설치된 Docker Desktop을 실행해 주세요.
 
-2. InfluxDB & Grafana (DB/웹서버) 구동
-   - 명령 프롬프트(CMD)를 열고 이 폴더(deploy_package)로 이동합니다.
-   - 다음 명령어를 입력하여 서버 인프라를 백그라운드로 실행합니다:
+2. InfluxDB & Grafana (서버 인프라) 구동
+   - 명령 프롬프트(CMD)를 이 폴더에서 열고 다음 명령어를 입력합니다:
      docker-compose up -d
-   (*참고: 초기 실행 시 InfluxDB 비밀번호(adminpassword)와 토큰(my-super-secret-auth-token), 버킷(cranepdm_kpis)이 자동 세팅됩니다.*)
 
-3. Grafana 대시보드 셋업
-   - 웹 브라우저를 열고 http://localhost:3000 에 접속합니다.
-   - ID: admin / PW: admin (최초 로그인 시 비밀번호 변경 안내창이 뜹니다. 원하시는 암호(예: cranepdm2024)로 설정하세요)
-   - 좌측 메뉴에서 'Connections' -> 'Data Sources'로 이동하여 InfluxDB가 잘 연결되어 있는지 확인합니다.
-     (만약 없다면 InfluxDB 추가 후 URL: http://influxdb:8086, Token: my-super-secret-auth-token 입력)
-   - 좌측 메뉴 'Dashboards' -> 우측 상단 '+' -> 'Import' 클릭
-   - 동봉된 [grafana_v2_detail_dashboard.json] 파일 내용을 복사해서 붙여넣고 Import!
-   - 그 다음 [grafana_v2_dashboard.json] 파일 내용도 복사해서 붙여넣고 Import!
+3. 대시보드 셋업 (최초 1회)
+   - 웹 브라우저에서 http://localhost:3000 접속 (admin / adminpassword)
+   - 'Dashboards' -> 'Import' 메뉴에서 동봉된 [.json] 파일 2개를 차례로 임포트합니다.
+   - **주의**: 이미 대시보드가 있다면 기존 것을 삭제하고 최신 V2.4 버전으로 업데이트해 주세요.
 
-4. 데이터 수집 로거(Edge Logger) 실행
-   - 이제 모든 준비가 끝났습니다. 크레인과 통신망이 연결된 상태에서 바로 이 폴더에 있는 `crane_edge_logger.exe`를 더블클릭하여 실행하세요.
+4. 데이터 수집 로거(V2.4 Edge Engine) 실행
+   - `crane_edge_logger.exe`를 실행합니다.
+   - 이제 232호기처럼 '속도를 줄여서 다니는 노후 장비'의 숨겨진 결함까지 Stress Index를 통해 
+     정확하게 포착하여 대시보드 최상단에 띄워줍니다.
    - **백그라운드 실행**: 실행 시 별도의 창이 뜨지 않으며, 윈도우 우측 하단 **시스템 트레이(시계 옆)**에 아이콘이 나타납니다.
    - **자동 시작 설정**: 트레이 아이콘을 우클릭하여 'Auto-start on Boot'를 체크하면, PC 재부팅 시 프로그램이 자동으로 시작됩니다.
-   - **종료**: 프로그램을 완전히 종료하려면 트레이 아이콘 우클릭 후 'Exit'를 클릭하세요.
 
 * 주의: 트레이 아이콘이 떠 있는 동안에는 백그라운드에서 데이터를 실시간으로 수집하고 있습니다.
 ===========================================================

@@ -49,11 +49,11 @@
               },
               {
                 "color": "orange",
-                "value": 200
+                "value": 10
               },
               {
                 "color": "red",
-                "value": 500
+                "value": 15
               }
             ]
           }
@@ -77,11 +77,11 @@
       },
       "targets": [
         {
-          "query": "from(bucket: \"cranepdm_kpis\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\n  |> filter(fn: (r) => r[\"crane_id\"] == \"${Crane_ID}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"reducer_damage\")\n  |> group()",
+          "query": "from(bucket: \"cranepdm_kpis\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\n  |> filter(fn: (r) => r[\"crane_id\"] == \"${Crane_ID}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"shock_penalty\" or r[\"_field\"] == \"curr_penalty\" or r[\"_field\"] == \"track_penalty\")\n  |> pivot(rowKey:[\"_time\", \"crane_id\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> map(fn: (r) => ({ r with _value: r.shock_penalty * r.curr_penalty * r.track_penalty }))\n  |> group()",
           "refId": "A"
         }
       ],
-      "title": "4. Wampfler GCR Stress(평균)",
+      "title": "4. Stress Index (평균)",
       "type": "stat"
     },
     {
@@ -102,11 +102,11 @@
               },
               {
                 "color": "orange",
-                "value": 2.0
+                "value": 20.0
               },
               {
                 "color": "red",
-                "value": 8.0
+                "value": 25.0
               }
             ]
           }
@@ -529,7 +529,7 @@
       "description": "어느 위치에서 케이블 마찰(저항)과 충격(장력)이 극심하게 발생하는지 갠트리 제어 구역과 일치하는지 파악하는 통합 핫스팟 차트입니다.\n▶ 센터(Center) 피드 포인트나 특정 레일 장애물 구간에서 데이터가 동시다발적으로 치솟는지 집중 확인하세요.\n\n▶ 데이터 라벨: 전류 마찰 저항 / 최대 장력 충격량 / 갠트리 속도 오차",
       "targets": [
         {
-          "query": "from(bucket: \"cranepdm_kpis\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\n  |> filter(fn: (r) => r[\"crane_id\"] == \"${Crane_ID}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"curr_penalty\" or r[\"_field\"] == \"peak_shock\" or r[\"_field\"] == \"rms_error\" or r[\"_field\"] == \"avg_pos\")\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> filter(fn: (r) => exists r.avg_pos)\n  |> drop(columns: [\"_start\", \"_stop\", \"_measurement\", \"crane_id\", \"algo_version\", \"is_loaded\"])\n  |> map(fn: (r) => ({\n      _time: r._time,\n      \"0. Gantry Position (m)\": r.avg_pos,\n      \"1. 마찰 저항(전류)\": if exists r.curr_penalty then r.curr_penalty else 1.0,\n      \"2. 최대 기어 충격량(Peak)\": if exists r.peak_shock then r.peak_shock else 1.0,\n      \"3. Gantry 속도오차(평균)\": (if exists r.rms_error then r.rms_error else 0.0) / 4000.0 + 1.0\n  }))",
+          "query": "from(bucket: \"cranepdm_kpis\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\n  |> filter(fn: (r) => r[\"crane_id\"] == \"${Crane_ID}\")\n  |> filter(fn: (r) => r[\"_field\"] == \"curr_penalty\" or r[\"_field\"] == \"peak_shock\" or r[\"_field\"] == \"rms_error\" or r[\"_field\"] == \"avg_pos\" or r[\"_field\"] == \"peak_shock_pos\")\n  |> pivot(rowKey: [\"_time\"], columnKey: [\"_field\"], valueColumn: \"_value\")\n  |> filter(fn: (r) => exists r.avg_pos or exists r.peak_shock_pos)\n  |> drop(columns: [\"_start\", \"_stop\", \"_measurement\", \"crane_id\", \"algo_version\", \"is_loaded\"])\n  |> map(fn: (r) => ({\n      _time: r._time,\n      \"0. Gantry Position (m)\": if exists r.peak_shock_pos then r.peak_shock_pos else r.avg_pos,\n      \"1. 마찰 저항(전류)\": if exists r.curr_penalty then r.curr_penalty else 1.0,\n      \"2. 최대 기어 충격량(Peak)\": if exists r.peak_shock then r.peak_shock else 1.0,\n      \"3. Gantry 속도오차(평균)\": (if exists r.rms_error then r.rms_error else 0.0) / 4000.0 + 1.0\n  }))",
           "refId": "A"
         }
       ],
