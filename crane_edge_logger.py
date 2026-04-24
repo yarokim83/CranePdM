@@ -213,7 +213,7 @@ def calculate_kpis(orders, feedbacks, loads, weights, positions, dt_list, db170_
     max_err = 0
     sum_sq_err = 0
     total_reducer_damage = 0
-    sum_shock, sum_curr, sum_track = 0, 0, 0
+    max_shock, max_curr, max_track = 1.0, 1.0, 1.0
     peak_shock = 1.0
     peak_shock_pos = positions[0] if positions else 0.0
     peak_order = max(map(abs, orders))
@@ -271,9 +271,9 @@ def calculate_kpis(orders, feedbacks, loads, weights, positions, dt_list, db170_
         instant_damage = base_fatigue * total_penalty * 0.001
         total_reducer_damage += instant_damage
         
-        sum_shock += shock_penalty
-        sum_curr += curr_penalty
-        sum_track += tracking_penalty
+        max_shock = max(max_shock, shock_penalty)
+        max_curr = max(max_curr, curr_penalty)
+        max_track = max(max_track, tracking_penalty)
         # V2.3: Record the TRUE unbounded shock severity for maintenance insight
         if raw_shock > peak_shock:
             peak_shock = raw_shock
@@ -281,9 +281,6 @@ def calculate_kpis(orders, feedbacks, loads, weights, positions, dt_list, db170_
 
     rms_error = math.sqrt(sum_sq_err / len(orders))
     event_duration = sum(dt_list)
-    avg_shock = sum_shock / (len(orders)-1)
-    avg_curr = sum_curr / (len(orders)-1)
-    avg_track = sum_track / (len(orders)-1)
 
     return {
         'algo_version': '2.4',
@@ -295,11 +292,11 @@ def calculate_kpis(orders, feedbacks, loads, weights, positions, dt_list, db170_
         'reducer_damage': round(total_reducer_damage, 2),
         'avg_weight': round(avg_weight, 1),
         'is_loaded': is_loaded,
-        'shock_penalty': round(avg_shock, 3),
+        'shock_penalty': round(max_shock, 3),
         'peak_shock': round(peak_shock, 3),
         'peak_shock_pos': round(peak_shock_pos, 1),
-        'curr_penalty': round(avg_curr, 3),
-        'track_penalty': round(avg_track, 3),
+        'curr_penalty': round(max_curr, 3),
+        'track_penalty': round(max_track, 3),
         'start_pos': positions[0],
         'end_pos': positions[-1],
         'avg_pos': round(avg_pos, 1)
