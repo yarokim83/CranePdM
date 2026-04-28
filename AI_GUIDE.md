@@ -45,3 +45,9 @@ CranePdM (Crane Predictive Maintenance) is a Python-based project for monitoring
 - Use meaningful variable names (e.g., `gantry_order_speed`, `plc_client`).
 - Include Korean comments for clarity where appropriate.
 - Ensure proper error handling for PLC connections.
+
+## Data Integrity & Safety Rules
+- **DO NOT Modify CSV Logs**: The file `crane_kpi_log.csv` is the project's source of truth. It must NEVER be edited, truncated, or modified directly.
+- **Non-Destructive Correction**: Data normalization or scaling corrections (e.g., handling historical scale shifts) must be implemented at the **Query/Visualization level** (Grafana Flux) or by creating **new projection measurements**.
+- **No Direct DB Overwrites**: Never perform bulk deletes or overwrites on the `cranepdm_kpis` bucket without explicit user approval and a verified backup strategy.
+- **Audit Trail**: Any script that performs data maintenance must log its actions to a separate log file, never overwriting the primary `crane_kpi_log.csv`.

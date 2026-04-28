@@ -3,8 +3,10 @@ from snap7.util import get_int, get_bool
 import time
 import math
 import csv
+import gzip
+import glob
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import SYNCHRONOUS
 import threading
@@ -67,9 +69,17 @@ CRANES = [
 
 # Logging Configuration
 CSV_FILE = 'crane_kpi_log.csv'
+RAW_DATA_DIR = 'raw_plc_data'  # Raw PLC samples saved here (gzip compressed)
+RAW_RETENTION_DAYS = 30        # Auto-delete raw files older than this
 IDLE_POLL_RATE = 0.5    # Seconds between checks when idle
-ACTIVE_POLL_RATE = 0.1  # Version 2.4 - Speed-Normalized Penalties and Geo-fencing (10Hz)
+ACTIVE_POLL_RATE = 0.1  # Version 2.6 - Pure measurement-driven (no position weighting)
 SPEED_THRESHOLD = 50    # Minimum speed to trigger 'movement' event
+
+# V2.6: Geo-fence / hotspot map removed. Position is observational only.
+# Rail condition is surfaced via Grafana Rail Heatmap + anomaly alerts, not
+# baked into the damage formula. The measured shock/current penalties already
+# encode the physical stress; layering position multipliers on top was double-counting
+# and prevented auto-detection of new sag sites / reduction after repair.
 
 # InfluxDB Configuration
 INFLUX_URL = "http://localhost:8086"
@@ -93,6 +103,54 @@ def init_csv():
                 'shock_penalty', 'peak_shock', 'curr_penalty', 'track_penalty',
                 'start_pos', 'end_pos', 'avg_pos'
             ])
+
+def save_raw_event(crane_id, orders, feedbacks, loads, weights, positions, dt_list, db170_list):
+    """Save raw PLC samples to daily gzip-compressed CSV file."""
+    try:
+        today = datetime.now().strftime('%Y-%m-%d')
+        day_dir = os.path.join(RAW_DATA_DIR, today)
+        os.makedirs(day_dir, exist_ok=True)
+        
+        ts = datetime.now().strftime('%H%M%S')
+        filename = os.path.join(day_dir, f"{crane_id}_{ts}.csv.gz")
+        
+        with gzip.open(filename, 'wt', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerow(['dt', 'order', 'feedback', 'loaded', 'weight', 'position',
+                             'reel_speed', 'reel_current', 'reel_torque'])
+            for i in range(len(orders)):
+                db170 = db170_list[i] if db170_list and db170_list[i] else (0, 0, 0)
+                writer.writerow([
+                    round(dt_list[i], 4) if i < len(dt_list) else 0,
+                    orders[i], feedbacks[i],
+                    1 if loads[i] else 0,
+                    weights[i], positions[i],
+                    db170[0], db170[1], db170[2]
+                ])
+    except Exception as e:
+        sync_print(f"[!] [{crane_id}] Raw save error: {e}")
+
+def cleanup_old_raw_data():
+    """Delete raw data directories older than RAW_RETENTION_DAYS."""
+    while not stop_event.is_set():
+        try:
+            if os.path.exists(RAW_DATA_DIR):
+                cutoff = datetime.now() - timedelta(days=RAW_RETENTION_DAYS)
+                for entry in os.listdir(RAW_DATA_DIR):
+                    dir_path = os.path.join(RAW_DATA_DIR, entry)
+                    if os.path.isdir(dir_path):
+                        try:
+                            dir_date = datetime.strptime(entry, '%Y-%m-%d')
+                            if dir_date < cutoff:
+                                import shutil
+                                shutil.rmtree(dir_path)
+                                sync_print(f"[CLEANUP] Removed old raw data: {entry}")
+                        except ValueError:
+                            pass
+        except Exception as e:
+            sync_print(f"[!] Cleanup error: {e}")
+        # Run cleanup once per day
+        stop_event.wait(86400)
             
 # Thread-safe lock for printing
 print_lock = threading.Lock()
@@ -175,8 +233,11 @@ def setup_tray():
 
 def calculate_kpis(orders, feedbacks, loads, weights, positions, dt_list, db170_list=None):
     """
-    V2.0 Physical Model — Cable Reel Drive Data (Torque, Speed, Current) only.
+    V2.6 Physical Model — Pure measurement-driven damage, no position weighting.
+    Cable Reel Drive Data (Torque, Speed, Current) only.
     If db170_list is unavailable (DB not mapped), event is skipped.
+    Rail hotspots are diagnosed at the Grafana layer (Rail Heatmap) using the
+    `peak_shock` × `peak_shock_pos` fields, not via in-formula penalties.
     """
     if not orders or len(orders) < 2:
         return None
@@ -213,8 +274,11 @@ def calculate_kpis(orders, feedbacks, loads, weights, positions, dt_list, db170_
     max_err = 0
     sum_sq_err = 0
     total_reducer_damage = 0
-    max_shock, max_curr, max_track = 1.0, 1.0, 1.0
-    peak_shock = 1.0
+    sum_shock, sum_curr, sum_track = 0, 0, 0
+    # V2.5 fix (retained): init peak_shock=0 so the first sample (raw_shock >= 1.0)
+    # always updates peak_shock_pos. Previously raw_shock==1.0 samples left pos at
+    # positions[0] (often 0).
+    peak_shock = 0.0
     peak_shock_pos = positions[0] if positions else 0.0
     peak_order = max(map(abs, orders))
     peak_fb = max(map(abs, feedbacks))
@@ -260,20 +324,16 @@ def calculate_kpis(orders, feedbacks, loads, weights, positions, dt_list, db170_
         else:
             tracking_penalty = 1.0
 
-        # V2.4: Geo-fenced Track Penalty (Danger Zone 2400-2700m)
-        curr_pos = positions[i] if positions else 0.0
-        if 2400.0 <= curr_pos <= 2700.0:
-            geo_penalty = 2.0
-        else:
-            geo_penalty = 1.0
-
-        total_penalty = shock_penalty * curr_penalty * tracking_penalty * geo_penalty
+        # V2.6: Damage is purely measurement-driven. Position is recorded via
+        # peak_shock_pos/avg_pos for diagnostic use at the Grafana layer, but no
+        # location-based multiplier is applied to the damage formula.
+        total_penalty = shock_penalty * curr_penalty * tracking_penalty
         instant_damage = base_fatigue * total_penalty * 0.001
         total_reducer_damage += instant_damage
         
-        max_shock = max(max_shock, shock_penalty)
-        max_curr = max(max_curr, curr_penalty)
-        max_track = max(max_track, tracking_penalty)
+        sum_shock += shock_penalty
+        sum_curr += curr_penalty
+        sum_track += tracking_penalty
         # V2.3: Record the TRUE unbounded shock severity for maintenance insight
         if raw_shock > peak_shock:
             peak_shock = raw_shock
@@ -281,9 +341,13 @@ def calculate_kpis(orders, feedbacks, loads, weights, positions, dt_list, db170_
 
     rms_error = math.sqrt(sum_sq_err / len(orders))
     event_duration = sum(dt_list)
+    # V2.6: per-sample 평균 (geo-fence 없음, raw 측정 그대로)
+    avg_shock = sum_shock / (len(orders)-1)
+    avg_curr = sum_curr / (len(orders)-1)
+    avg_track = sum_track / (len(orders)-1)
 
     return {
-        'algo_version': '2.4',
+        'algo_version': '2.6',
         'duration': round(event_duration, 2),
         'peak_order': peak_order,
         'peak_fb': peak_fb,
@@ -292,11 +356,11 @@ def calculate_kpis(orders, feedbacks, loads, weights, positions, dt_list, db170_
         'reducer_damage': round(total_reducer_damage, 2),
         'avg_weight': round(avg_weight, 1),
         'is_loaded': is_loaded,
-        'shock_penalty': round(max_shock, 3),
+        'shock_penalty': round(avg_shock, 3),
         'peak_shock': round(peak_shock, 3),
         'peak_shock_pos': round(peak_shock_pos, 1),
-        'curr_penalty': round(max_curr, 3),
-        'track_penalty': round(max_track, 3),
+        'curr_penalty': round(avg_curr, 3),
+        'track_penalty': round(avg_track, 3),
         'start_pos': positions[0],
         'end_pos': positions[-1],
         'avg_pos': round(avg_pos, 1)
@@ -332,6 +396,7 @@ def log_event(crane_id, kpis):
         point = (
             Point("crane_movement")
             .tag("crane_id", crane_id)
+            .tag("source", "live_v26")
             .tag("algo_version", kpis['algo_version'])
             .tag("is_loaded", "Loaded" if kpis['is_loaded'] else "Empty")
             .field("duration_s", float(kpis['duration']))
@@ -480,9 +545,8 @@ def monitor_crane(crane_config):
                     sync_print(f"[{crane_id}] Event too short ({kpis['duration']}s), ignored.")
                 else:
                     log_event(crane_id, kpis)
-                    # 10000 갭 등 치명적 속도오차 발생 시에만 Raw 데이터를 파일로 덤프
-                    if kpis['max_error'] > 9500:
-                        dump_raw_anomaly(crane_id, kpis, orders, feedbacks, positions, dt_list, db170_list)
+                    # Save raw PLC data for every valid event (gzip compressed)
+                    save_raw_event(crane_id, orders, feedbacks, loads, weights, positions, dt_list, db170_list)
                     
         except Exception as e:
             sync_print(f"[!] [{crane_id}] Connection error: {e}. Retrying in 5 seconds...")
@@ -496,7 +560,10 @@ def main():
     init_csv()
     sync_print(f"Edge Logger Started. Monitoring {len(CRANES)} cranes...")
     
-    # Start threads in background
+    # Start cleanup thread
+    threading.Thread(target=cleanup_old_raw_data, daemon=True).start()
+    
+    # Start crane monitoring threads
     for crane in CRANES:
         threading.Thread(target=monitor_crane, args=(crane,), daemon=True).start()
         

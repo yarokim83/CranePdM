@@ -24,3 +24,34 @@ dist/
 tmp*.py
 __pycache__/
 *.exe
+
+# Temporary analysis & check scripts
+analyze_*.py
+check_*.py
+test_*.py
+delete_*.py
+fix_*.py
+verify_*.py
+compare_*.py
+compute_*.py
+convert_*.py
+evaluate_*.py
+find_*.py
+import_*.py
+normalize_*.py
+parse_*.py
+recover_*.py
+recalculate_*.py
+remove_*.py
+revert_*.py
+scan_*.py
+other/
+raw_plc_data/
+
+# Data backups
+backup_*/
+*.bak
+
+# Analysis output
+*_out.txt
+analysis_out.txt

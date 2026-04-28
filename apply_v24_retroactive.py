@@ -14,7 +14,7 @@ print("Applying V2.4 Algorithm retroactively to ALL historical InfluxDB data..."
 
 query = f'''
 from(bucket: "{bucket}")
-  |> range(start: 0)
+  |> range(start: -3d)
   |> filter(fn: (r) => r["_measurement"] == "crane_movement")
   |> pivot(rowKey:["_time", "crane_id"], columnKey: ["_field"], valueColumn: "_value")
 '''
@@ -27,7 +27,7 @@ for table in tables:
     for record in table.records:
         algo_version = record.values.get('algo_version')
         if algo_version == "2.4":
-            continue # Skip if already updated
+            pass # We want to overwrite to ensure consistency
             
         crane_id = record.values.get('crane_id')
         peak_order = record.values.get('peak_order', 10000.0)

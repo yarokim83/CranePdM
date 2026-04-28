@@ -7,19 +7,31 @@
 
 ---
 
+---
+
 ## 1. 개요
 
 본 시스템은 ARMGC(자동화 레일 마운트 갠트리 크레인) 38대의 **Wampfler GCR (Generic Cable Reel) 감속기(Reducer)** 에 누적되는 기계적 피로도를 실시간으로 계산하고 시각화하는 예지정비(PdM) 프로그램입니다.
 
 V2.0에서는 PLC를 통해 **케이블 릴 드라이브(Inverter)의 실측 물리량 (Torque, Speed, Current)** 을 직접 수집하여, **ISO 6336 기반 피로 모델**을 적용합니다.
 
-> **V2.2 업데이트**: 케이블 릴 감속기는 컨테이너 중량물(Weight)과는 기계적으로 분리되어 있으므로, 하중 가중치를 제거하고 오직 **갠트리 주행 역학에 따른 케이블 장력(Tension) 및 충격**에 집중하도록 개선되었습니다.
+---
 
-> DB170 접점이 맵핑되지 않은 크레인(264호)은 이벤트가 기록되지 않습니다.
+## 2. 알고리즘 버전 히스토리 (Version History)
+
+| 버전 | 적용일 | 핵심 변경 사항 | 요약 |
+|---|---|---|---|
+| **V2.6** | 2026-04-25 | **지오펜싱 제거 & Pure Measurement** | 위치 기반 가중치(Geo-Penalty) 완전 제거, 순수 물리 센서값(충격/전류)만으로 피로도 계산 |
+| **V2.5** | 2026-04-24 | **Block 3 핫스팟 가중치** | 231, 232호기 등 특정 구간(Block 3) 페널티 정밀화 (V2.6에서 제거됨) |
+| **V2.4** | 2026-04-22 | **속도 반비례 가중치 & 지오펜싱** | 저속 충격 가중치 강화, 특정 구간(2400-2700m) 페널티 2배, Empty 이벤트 0점 처리 폐지 |
+| **V2.3** | 2026-03-30 | **무제한 충격량(Peak Shock) 기록** | 캡핑(Capping) 없는 순수 물리 타격량 기록 기능 추가 (유지보수 참고용) |
+| **V2.2** | 2026-03-15 | **하중 가중치 제거** | 케이블 릴은 화물 중량과 무관하므로 Weight Factor 제거, 순수 장력/충격 집중 |
+| **V2.1** | 2026-02-10 | **노이즈 필터링 튜닝** | 최소 시간(1s→3s) 상향, Tracking Error 게이트(100→500) 상향, 중량 클램핑(60t) |
+| **V2.0** | 2026-01-05 | **최초 Physical Model 도입** | PLC 실측 물리량(Torque, Current) 기반 ISO 6336 피로 모델 최초 적용 |
 
 ---
 
-## 2. 데이터 수집 (PLC 주소 매핑)
+## 3. 데이터 수집 (PLC 주소 매핑)
 
 ### 2.1 갠트리 이동 데이터 (전 크레인 공통)
 
@@ -76,8 +88,9 @@ db170_list의 모든 샘플이 유효한 경우에만 이벤트 기록
 
 ### 전체 공식 (한 줄 요약)
 ```
-reducer_damage = Σ [ Base_Fatigue × Shock_Penalty × Current_Penalty × Tracking_Penalty × Geo_Penalty ]
+reducer_damage = Σ [ Base_Fatigue × Shock_Penalty × Current_Penalty × Tracking_Penalty ]
 ```
+> **V2.6 변경**: 기존의 `Geo_Penalty`는 제거되었으며 오직 물리적 측정값만으로 손상을 계산합니다.
 
 ---
 
@@ -107,6 +120,17 @@ Peak_Shock (기록용) = 무제한 (Raw_Shock 그대로 표출)
 ```
 
 > **V2.4 변경**: 저속 주행 시 발생하는 토크 튐(Shock)은 고속 주행 시보다 훨씬 치명적(기어 유격 심화)이므로, 속도가 느릴수록(Speed_Factor가 작을수록) 충격 페널티를 최대 3배까지 증폭시킵니다. 최고 순간 충격량 지표인 `Peak_Shock`은 V2.3과 동일하게 순수 물리 타격량을 기록합니다.
+
+#### 💡 속도 보정 공식 비교 (간략화)
+
+| 버전 | 개념 | 핵심 공식 | 비고 |
+|---|---|---|---|
+| **V2.3 이전** | 단순 충격량 | `Stress = Shock` | 속도에 상관없이 충격 크기만 측정 |
+| **V2.4 현재** | **체감 충격량** | `Stress = Shock ÷ 속도` | **천천히 갈 때 툭 치는 것이 더 위험함** |
+
+> *예: 동일하게 10의 충격이 발생했을 때*
+> - 시속 100km 주행 중: 스트레스 **10** (그냥 지나감)
+> - 시속 10km 주행 중: 스트레스 **100** (기어에 큰 무리)
 
 ---
 
@@ -139,23 +163,16 @@ Else:
 
 ---
 
-### Step 3C: 지오펜싱 위치 페널티 — Geo-fenced Track Penalty (V2.4)
+### Step 3C: 지오펜싱 위치 페널티 — Geo-fenced Track Penalty (V2.6 삭제됨)
 
-```
-If 2,400m <= Position <= 2,700m:
-    Geo_Penalty = 2.0
-Else:
-    Geo_Penalty = 1.0
-```
-
-> **V2.4 도입**: 232호기 파손 사건 분석을 통해 항만 내 모든 크레인이 공통적으로 2,400m~2,700m 구간에서 11G 이상의 거대한 물리적 타격을 받는 것으로 증명되었습니다. 따라서 이 구간(지뢰밭)에 진입하면 무조건 2배의 페널티를 곱하여 피로도 누적을 2배 가속합니다.
+> **V2.6 변경**: 위치 기반 곱수인 `Geo_Penalty`는 폐지되었습니다. 특정 구간의 파손 위험(예: 2,400m~2,700m)은 이미 측정된 `Shock_Penalty`와 `Current_Penalty`에 내재되어 있으므로, 위치 곱수를 추가로 적용하면 스트레스가 과도하게 중복 계산(Double-counting)되는 문제가 발생합니다. 레일 상태 모니터링은 Grafana 레이어에서 `peak_shock`와 `peak_shock_pos`를 사용한 Heatmap으로 대체되었습니다.
 
 ---
 
 ### Step 4: 누적 합산 및 최종 제한(Capping)
 
 ```
-Total_Penalty = min(20.0, Shock_Penalty × Current_Penalty × Tracking_Penalty × Geo_Penalty)
+Total_Penalty = min(20.0, Shock_Penalty × Current_Penalty × Tracking_Penalty)
 Instant_Damage = Base_Fatigue × Total_Penalty × 0.001
 Total_Reducer_Damage = Σ(Instant_Damage[i])
 ```
@@ -199,7 +216,7 @@ graph TD
 
 | KPI 필드명 | 단위 | 설명 |
 |---|---|---|
-| `algo_version` | - | 항상 `"2.3"` |
+| `algo_version` | - | 현재 버전 `"2.6"` |
 | `duration` | 초(s) | 이동 이벤트 지속 시간 |
 | `peak_order` | - | 최대 속도 명령값 |
 | `peak_feedback` | - | 최대 실제 속도 |

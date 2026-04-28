@@ -44,11 +44,11 @@
               },
               {
                 "color": "orange",
-                "value": 20
+                "value": 18
               },
               {
                 "color": "red",
-                "value": 25
+                "value": 20
               }
             ]
           }
@@ -137,7 +137,7 @@
       },
       "targets": [
         {
-          "query": "from(bucket: \"cranepdm_kpis\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"shock_penalty\" or r[\"_field\"] == \"curr_penalty\" or r[\"_field\"] == \"track_penalty\")\r\n  |> pivot(rowKey:[\"_time\", \"crane_id\"], columnKey: [\"_field\"], valueColumn: \"_value\")\r\n  |> map(fn: (r) => ({ r with _value: r.shock_penalty * r.curr_penalty * r.track_penalty }))\r\n  |> group(columns: [\"crane_id\"])\r\n  |> mean(column: \"_value\")\r\n  |> group()\r\n  |> sort(columns: [\"_value\"], desc: true)\r\n  |> limit(n: 5)\r\n  |> keep(columns: [\"crane_id\", \"_value\"])",
+          "query": "from(bucket: \"cranepdm_kpis\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"shock_penalty\" or r[\"_field\"] == \"curr_penalty\" or r[\"_field\"] == \"track_penalty\")\r\n  |> drop(columns: [\"algo_version\"])\r\n  |> pivot(rowKey:[\"_time\", \"crane_id\"], columnKey: [\"_field\"], valueColumn: \"_value\")\r\n  |> map(fn: (r) => ({ r with _value: r.shock_penalty * r.curr_penalty * r.track_penalty }))\r\n  |> group(columns: [\"crane_id\"])\r\n  |> mean(column: \"_value\")\r\n  |> group()\r\n  |> sort(columns: [\"_value\"], desc: true)\r\n  |> limit(n: 5)\r\n  |> keep(columns: [\"crane_id\", \"_value\"])",
           "refId": "A"
         }
       ],
@@ -163,11 +163,11 @@
               },
               {
                 "color": "orange",
-                "value": 20
+                "value": 18
               },
               {
                 "color": "red",
-                "value": 25
+                "value": 20
               }
             ]
           },
@@ -202,7 +202,7 @@
       },
       "targets": [
         {
-          "query": "from(bucket: \"cranepdm_kpis\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"shock_penalty\" or r[\"_field\"] == \"curr_penalty\" or r[\"_field\"] == \"track_penalty\")\r\n  |> pivot(rowKey:[\"_time\", \"crane_id\"], columnKey: [\"_field\"], valueColumn: \"_value\")\r\n  |> map(fn: (r) => ({ r with _value: r.shock_penalty * r.curr_penalty * r.track_penalty }))\r\n  |> group(columns: [\"crane_id\"])\r\n  |> mean(column: \"_value\")",
+          "query": "from(bucket: \"cranepdm_kpis\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\r\n  |> filter(fn: (r) => r[\"_field\"] == \"shock_penalty\" or r[\"_field\"] == \"curr_penalty\" or r[\"_field\"] == \"track_penalty\")\r\n  |> drop(columns: [\"algo_version\"])\r\n  |> pivot(rowKey:[\"_time\", \"crane_id\"], columnKey: [\"_field\"], valueColumn: \"_value\")\r\n  |> map(fn: (r) => ({ r with _value: r.shock_penalty * r.curr_penalty * r.track_penalty }))\r\n  |> group(columns: [\"crane_id\"])\r\n  |> mean(column: \"_value\")",
           "refId": "A"
         }
       ],
@@ -267,7 +267,7 @@
       },
       "targets": [
         {
-          "query": "from(bucket: \"cranepdm_kpis\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\r\n  |> filter(fn: (r) => r[\"crane_id\"] =~ /${Crane_ID:regex}/)\r\n  |> filter(fn: (r) => r[\"_field\"] == \"shock_penalty\" or r[\"_field\"] == \"curr_penalty\" or r[\"_field\"] == \"track_penalty\")\r\n  |> pivot(rowKey:[\"_time\", \"crane_id\"], columnKey: [\"_field\"], valueColumn: \"_value\")\r\n  |> map(fn: (r) => ({ r with _value: r.shock_penalty * r.curr_penalty * r.track_penalty }))\r\n  |> group(columns: [\"crane_id\"])\r\n  |> aggregateWindow(every: 1d, fn: mean, createEmpty: false)",
+          "query": "from(bucket: \"cranepdm_kpis\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\r\n  |> filter(fn: (r) => r[\"crane_id\"] =~ /${Crane_ID:regex}/)\r\n  |> filter(fn: (r) => r[\"_field\"] == \"shock_penalty\" or r[\"_field\"] == \"curr_penalty\" or r[\"_field\"] == \"track_penalty\")\r\n  |> drop(columns: [\"algo_version\"])\r\n  |> pivot(rowKey:[\"_time\", \"crane_id\"], columnKey: [\"_field\"], valueColumn: \"_value\")\r\n  |> map(fn: (r) => ({ r with _value: r.shock_penalty * r.curr_penalty * r.track_penalty }))\r\n  |> group(columns: [\"crane_id\"])\r\n  |> aggregateWindow(every: 1d, fn: mean, createEmpty: false, timeSrc: \"_start\")",
           "refId": "A"
         }
       ],
@@ -290,11 +290,11 @@
               },
               {
                 "color": "orange",
-                "value": 20
+                "value": 18
               },
               {
                 "color": "red",
-                "value": 25
+                "value": 20
               }
             ]
           },
@@ -332,7 +332,7 @@
       },
       "targets": [
         {
-          "query": "from(bucket: \"cranepdm_kpis\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\r\n  |> filter(fn: (r) => r[\"crane_id\"] =~ /${Crane_ID:regex}/)\r\n  |> filter(fn: (r) => r[\"_field\"] == \"shock_penalty\" or r[\"_field\"] == \"curr_penalty\" or r[\"_field\"] == \"track_penalty\")\r\n  |> pivot(rowKey:[\"_time\", \"crane_id\"], columnKey: [\"_field\"], valueColumn: \"_value\")\r\n  |> map(fn: (r) => ({ r with _value: r.shock_penalty * r.curr_penalty * r.track_penalty }))\r\n  |> group(columns: [\"crane_id\"])\r\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)",
+          "query": "from(bucket: \"cranepdm_kpis\")\r\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\r\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\r\n  |> filter(fn: (r) => r[\"crane_id\"] =~ /${Crane_ID:regex}/)\r\n  |> filter(fn: (r) => r[\"_field\"] == \"shock_penalty\" or r[\"_field\"] == \"curr_penalty\" or r[\"_field\"] == \"track_penalty\")\r\n  |> drop(columns: [\"algo_version\"])\r\n  |> pivot(rowKey:[\"_time\", \"crane_id\"], columnKey: [\"_field\"], valueColumn: \"_value\")\r\n  |> map(fn: (r) => ({ r with _value: r.shock_penalty * r.curr_penalty * r.track_penalty }))\r\n  |> group(columns: [\"crane_id\"])\r\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)",
           "refId": "A"
         }
       ],
