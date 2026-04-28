@@ -32,3 +32,13 @@
 [2026-04-28 10:43:14] V2.4 unify (3/30~4/27): 3to8=109655 9to21=111604 22to23=7600 24to27=23617 skip=2
 [2026-04-28 10:47:40] V2.4 unify (3/30~4/27): 3to8=109655 9to21=110052 22to23=9152 24to27=23617 skip=2
 [2026-04-28 10:55:12] V2.4 통일 (B+C 적용) + Grafana 패치: 3/30~4/27 252,476 events as algo_version=2.4 source=v24_unified. track_penalty=geo, 4/22~23 V2.3 데이터 포함. Grafana 4개 패널 source 필터 변경 (v24_unified + live_v26). dashboard backup: backup_20260428/dashboard_total_control_tower_v1.json
+
+[2026-04-28 15:43 KST] V2.6.1 sensitivity improvement deployed
+  - Algorithm change (definition, not post-correction):
+    A) speed_factor cap: 0.3→0.05 (shock), 0.5→0.10 (curr) — low-speed amplification activated
+    Safety: per-sample penalty cap 10.0 (MAX_INDIVIDUAL_PENALTY activated)
+  - Live logger restart: PID 836 (V2.6) stopped → PID 23708 (V2.6.1) started
+  - Reprocess: 4/28 02:00~06:35 UTC (KST 11:00~15:35), 2432 events V2.6→V2.6.1 reimported
+  - Backup: backup_20260428/crane_edge_logger_before_v26_sensitivity.py
+            backup_20260428/live_v26_after_apr28_02utc.csv (5.0 MB)
+  - Validation: ratio 4-6x (fleet 5→25-35), 232 mean 4→17-22, V2.4 baseline 38-41 with ~70%

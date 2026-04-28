@@ -72,7 +72,7 @@ CSV_FILE = 'crane_kpi_log.csv'
 RAW_DATA_DIR = 'raw_plc_data'  # Raw PLC samples saved here (gzip compressed)
 RAW_RETENTION_DAYS = 30        # Auto-delete raw files older than this
 IDLE_POLL_RATE = 0.5    # Seconds between checks when idle
-ACTIVE_POLL_RATE = 0.1  # Version 2.6 - Pure measurement-driven (no position weighting)
+ACTIVE_POLL_RATE = 0.1  # Version 2.6.1 - Speed-norm cap relaxed (0.05/0.10) + peak-weighted aggregation
 SPEED_THRESHOLD = 50    # Minimum speed to trigger 'movement' event
 
 # V2.6: Geo-fence / hotspot map removed. Position is observational only.
@@ -274,7 +274,7 @@ def calculate_kpis(orders, feedbacks, loads, weights, positions, dt_list, db170_
     max_err = 0
     sum_sq_err = 0
     total_reducer_damage = 0
-    sum_shock, sum_curr, sum_track = 0, 0, 0
+    shock_list, curr_list, track_list = [], [], []
     # V2.5 fix (retained): init peak_shock=0 so the first sample (raw_shock >= 1.0)
     # always updates peak_shock_pos. Previously raw_shock==1.0 samples left pos at
     # positions[0] (often 0).
@@ -302,25 +302,29 @@ def calculate_kpis(orders, feedbacks, loads, weights, positions, dt_list, db170_
         # Base Fatigue (Miner's Rule) + V2.2 GCR Profile (Weight factor is 1.0)
         base_fatigue = (abs(v2_torque) ** 3) * abs(v2_speed) / 1000000.0 * weight_factor
 
-        # V2.4: Speed-Normalized Shock Penalty
+        # V2.6.1 (A): Speed-Normalized Shock Penalty — cap 0.3 → 0.05 for true low-speed amplification
+        # outlier 보호: per-sample penalty 를 MAX_INDIVIDUAL_PENALTY 로 cap (정의된 상수 활용)
         torque_deriv = (v2_torque - prev_v2_torque) / dt
         raw_shock = 1.0 + 0.06 * abs(torque_deriv)
-        speed_factor_shock = max(0.3, abs(v2_speed) / 10000.0)
-        shock_penalty = 1.0 + (raw_shock - 1.0) / speed_factor_shock
+        speed_factor_shock = max(0.05, abs(v2_speed) / 10000.0)
+        shock_penalty = min(MAX_INDIVIDUAL_PENALTY,
+                            1.0 + (raw_shock - 1.0) / speed_factor_shock)
 
-        # V2.4: Speed-Normalized Current Penalty
+        # V2.6.1 (A): Speed-Normalized Current Penalty — cap 0.5 → 0.10
         if abs(v2_torque) > 10.0:
             curr_ratio = abs(v2_current) / (abs(v2_torque) + 0.1)
             raw_curr_penalty = 1.0 + 5.0 * max(0, curr_ratio - CURR_THRESHOLD)
-            speed_factor_curr = max(0.5, abs(v2_speed) / 10000.0)
-            curr_penalty = 1.0 + (raw_curr_penalty - 1.0) / speed_factor_curr
+            speed_factor_curr = max(0.10, abs(v2_speed) / 10000.0)
+            curr_penalty = min(MAX_INDIVIDUAL_PENALTY,
+                               1.0 + (raw_curr_penalty - 1.0) / speed_factor_curr)
         else:
             curr_penalty = 1.0
 
-        # Control Anomaly Penalty B — Speed tracking error (Cap at 10.0)
+        # Control Anomaly Penalty B — Speed tracking error (Cap at MAX_INDIVIDUAL_PENALTY)
         if abs(order) > TRACK_GATE:
             tracking_error_ratio = abs_err / (abs(order) + TRACK_EPSILON)
-            tracking_penalty = 1.0 + TRACK_SCALE * max(0, tracking_error_ratio - 0.05)
+            tracking_penalty = min(MAX_INDIVIDUAL_PENALTY,
+                                   1.0 + TRACK_SCALE * max(0, tracking_error_ratio - 0.05))
         else:
             tracking_penalty = 1.0
 
@@ -331,9 +335,9 @@ def calculate_kpis(orders, feedbacks, loads, weights, positions, dt_list, db170_
         instant_damage = base_fatigue * total_penalty * 0.001
         total_reducer_damage += instant_damage
         
-        sum_shock += shock_penalty
-        sum_curr += curr_penalty
-        sum_track += tracking_penalty
+        shock_list.append(shock_penalty)
+        curr_list.append(curr_penalty)
+        track_list.append(tracking_penalty)
         # V2.3: Record the TRUE unbounded shock severity for maintenance insight
         if raw_shock > peak_shock:
             peak_shock = raw_shock
@@ -341,13 +345,16 @@ def calculate_kpis(orders, feedbacks, loads, weights, positions, dt_list, db170_
 
     rms_error = math.sqrt(sum_sq_err / len(orders))
     event_duration = sum(dt_list)
-    # V2.6: per-sample 평균 (geo-fence 없음, raw 측정 그대로)
-    avg_shock = sum_shock / (len(orders)-1)
-    avg_curr = sum_curr / (len(orders)-1)
-    avg_track = sum_track / (len(orders)-1)
+    # V2.6.1: per-sample 평균 (B 가중 집계 미적용, A 만 유지)
+    if shock_list:
+        avg_shock = sum(shock_list) / len(shock_list)
+        avg_curr  = sum(curr_list)  / len(curr_list)
+        avg_track = sum(track_list) / len(track_list)
+    else:
+        avg_shock = avg_curr = avg_track = 1.0
 
     return {
-        'algo_version': '2.6',
+        'algo_version': '2.6.1',
         'duration': round(event_duration, 2),
         'peak_order': peak_order,
         'peak_fb': peak_fb,
