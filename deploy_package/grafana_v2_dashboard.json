@@ -44,11 +44,11 @@
               },
               {
                 "color": "orange",
-                "value": 20
+                "value": 25.0
               },
               {
                 "color": "red",
-                "value": 25
+                "value": 30.0
               }
             ]
           }
@@ -90,13 +90,13 @@
             "properties": [
               {
                 "id": "displayName",
-                "value": "호기"
+                "value": "\ud638\uae30"
               },
               {
                 "id": "links",
                 "value": [
                   {
-                    "title": "🔍 Analyze Crane ${__value.text}",
+                    "title": "\ud83d\udd0d Analyze Crane ${__value.text}",
                     "url": "/d/cranepdm_v2_detail?var-Crane_ID=${__value.text}",
                     "targetBlank": true
                   }
@@ -118,7 +118,7 @@
               },
               "renameByName": {
                 "_value": "Health Penalty Score",
-                "crane_id": "호기"
+                "crane_id": "\ud638\uae30"
               }
             }
           }
@@ -141,7 +141,7 @@
           "refId": "A"
         }
       ],
-      "title": "🔥 Top 5 Risk Cranes",
+      "title": "\ud83d\udd25 Top 5 Risk Cranes",
       "type": "table"
     },
     {
@@ -163,17 +163,17 @@
               },
               {
                 "color": "orange",
-                "value": 20
+                "value": 25.0
               },
               {
                 "color": "red",
-                "value": 25
+                "value": 30.0
               }
             ]
           },
           "links": [
             {
-              "title": "🔍 Analyze Crane ${__field.labels.crane_id}",
+              "title": "\ud83d\udd0d Analyze Crane ${__field.labels.crane_id}",
               "url": "/d/cranepdm_v2_detail?var-Crane_ID=${__field.labels.crane_id}",
               "targetBlank": true
             }
@@ -206,7 +206,7 @@
           "refId": "A"
         }
       ],
-      "title": "🛰️ ARMGC 38대 (Stress Index)",
+      "title": "\ud83d\udef0\ufe0f ARMGC 38\ub300 (Stress Index)",
       "type": "stat"
     },
     {
@@ -271,7 +271,7 @@
           "refId": "A"
         }
       ],
-      "title": "📅 ARMGC 일일 Stress 트렌드 (호기별 일일 변화추이)",
+      "title": "\ud83d\udcc5 ARMGC \uc77c\uc77c Stress \ud2b8\ub80c\ub4dc (\ud638\uae30\ubcc4 \uc77c\uc77c \ubcc0\ud654\ucd94\uc774)",
       "type": "timeseries"
     },
     {
@@ -290,11 +290,11 @@
               },
               {
                 "color": "orange",
-                "value": 20
+                "value": 25.0
               },
               {
                 "color": "red",
-                "value": 25
+                "value": 30.0
               }
             ]
           },
@@ -336,7 +336,7 @@
           "refId": "A"
         }
       ],
-      "title": "📈 Wampfler GCR Stress Trend (호기별 평균 추세)",
+      "title": "\ud83d\udcc8 Wampfler GCR Stress Trend (\ud638\uae30\ubcc4 \ud3c9\uade0 \ucd94\uc138)",
       "type": "timeseries"
     }
   ],
