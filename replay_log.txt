@@ -42,3 +42,7 @@
   - Backup: backup_20260428/crane_edge_logger_before_v26_sensitivity.py
             backup_20260428/live_v26_after_apr28_02utc.csv (5.0 MB)
   - Validation: ratio 4-6x (fleet 5→25-35), 232 mean 4→17-22, V2.4 baseline 38-41 with ~70%
+[2026-04-29 12:32:17] replay run: range=2026-04-28~2026-04-29 cranes=['235'] algo_tag=current_check dry_run=True
+           files=547 ok=547 fail=0 short=0 empty=0 total_damage=1746062.44 elapsed=1.7s
+[2026-04-29 12:32:31] replay run: range=2026-04-28~2026-04-29 cranes=['235'] algo_tag=current_check dry_run=False
+           files=547 ok=547 fail=0 short=0 empty=0 total_damage=1746062.44 elapsed=1.6s

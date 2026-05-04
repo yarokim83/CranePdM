@@ -1,0 +1,391 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "P951FEA4DE68E13C5"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "center",
+            "cellOptions": {
+              "type": "auto"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 40
+              },
+              {
+                "color": "red",
+                "value": 50
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "_value"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Avg Reducer Damage"
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "gradient",
+                  "type": "gauge",
+                  "valueDisplayMode": "text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "crane_id"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "호기"
+              }
+            ]
+          }
+        ],
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {
+                "time": true
+              },
+              "indexByName": {
+                "crane_id": 0,
+                "_value": 1
+              },
+              "renameByName": {
+                "_value": "Avg Reducer Damage",
+                "crane_id": "호기"
+              }
+            }
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 7,
+        "x": 0,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "query": "from(bucket: \"cranepdm_kpis\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\n  |> filter(fn: (r) => (r[\"source\"] == \"v24_unified\" or r[\"source\"] == \"live_v26\"))\n  |> filter(fn: (r) => r[\"_field\"] == \"shock_penalty\" or r[\"_field\"] == \"curr_penalty\" or r[\"_field\"] == \"track_penalty\")\n  |> pivot(rowKey:[\"_time\", \"crane_id\"], columnKey:[\"_field\"], valueColumn:\"_value\")\n  |> filter(fn: (r) => exists r.shock_penalty and exists r.curr_penalty and exists r.track_penalty)\n  |> map(fn: (r) => ({ r with _value: r.shock_penalty * r.curr_penalty * r.track_penalty }))\n  |> filter(fn: (r) => r._value > 0.0)\n  |> group(columns: [\"crane_id\"])\n  |> mean()\n  |> group()\n  |> sort(columns: [\"_value\"], desc: true)\n  |> limit(n: 5)\n  |> keep(columns: [\"crane_id\", \"_value\"])",
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "P951FEA4DE68E13C5"
+          }
+        }
+      ],
+      "title": "🔥 Top 5 Risk Cranes (Stress Index)",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "P951FEA4DE68E13C5"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "displayName": "${__field.labels.crane_id}",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 40
+              },
+              {
+                "color": "red",
+                "value": 50
+              }
+            ]
+          }
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 17,
+        "x": 7,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "colorMode": "background",
+        "reduceOptions": {
+          "calcs": [
+            "mean"
+          ]
+        },
+        "textMode": "value_and_name",
+        "text": {
+          "titleSize": 24,
+          "valueSize": 12
+        }
+      },
+      "targets": [
+        {
+          "query": "from(bucket: \"cranepdm_kpis\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\n  |> filter(fn: (r) => (r[\"source\"] == \"v24_unified\" or r[\"source\"] == \"live_v26\"))\n  |> filter(fn: (r) => r[\"_field\"] == \"shock_penalty\" or r[\"_field\"] == \"curr_penalty\" or r[\"_field\"] == \"track_penalty\")\n  |> pivot(rowKey:[\"_time\", \"crane_id\"], columnKey:[\"_field\"], valueColumn:\"_value\")\n  |> filter(fn: (r) => exists r.shock_penalty and exists r.curr_penalty and exists r.track_penalty)\n  |> map(fn: (r) => ({ r with _value: r.shock_penalty * r.curr_penalty * r.track_penalty }))\n  |> filter(fn: (r) => r._value > 0.0)\n  |> group(columns: [\"crane_id\"])\n  |> mean()",
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "P951FEA4DE68E13C5"
+          }
+        }
+      ],
+      "title": "🛰️ ARMGC 38대 (Stress Index Stress)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "P951FEA4DE68E13C5"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "displayName": "${__field.labels.crane_id}",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 40
+              },
+              {
+                "color": "red",
+                "value": 50
+              }
+            ]
+          },
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "line"
+            },
+            "drawStyle": "line",
+            "lineWidth": 3,
+            "fillOpacity": 15,
+            "pointSize": 6,
+            "showPoints": "always"
+          }
+        }
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 7
+      },
+      "id": 12,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "query": "from(bucket: \"cranepdm_kpis\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\n  |> filter(fn: (r) => (r[\"source\"] == \"v24_unified\" or r[\"source\"] == \"live_v26\"))\n  |> filter(fn: (r) => r[\"_field\"] == \"shock_penalty\" or r[\"_field\"] == \"curr_penalty\" or r[\"_field\"] == \"track_penalty\")\n  |> pivot(rowKey:[\"_time\", \"crane_id\"], columnKey:[\"_field\"], valueColumn:\"_value\")\n  |> filter(fn: (r) => exists r.shock_penalty and exists r.curr_penalty and exists r.track_penalty)\n  |> map(fn: (r) => ({ r with _value: r.shock_penalty * r.curr_penalty * r.track_penalty }))\n  |> filter(fn: (r) => r._value > 0.0)\n  |> filter(fn: (r) => r[\"crane_id\"] =~ /${Crane_ID:regex}/)\n  |> group(columns: [\"crane_id\"])\n  |> aggregateWindow(every: 1d, fn: mean, createEmpty: false, timeSrc: \"_start\")",
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "P951FEA4DE68E13C5"
+          }
+        }
+      ],
+      "title": "📅 ARMGC 일일 Stress Index 트렌드",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "P951FEA4DE68E13C5"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "displayName": "${__field.labels.crane_id}",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 40
+              },
+              {
+                "color": "red",
+                "value": 50
+              }
+            ]
+          },
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "line"
+            },
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "pointSize": 5,
+            "showPoints": "always"
+          }
+        }
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 17
+      },
+      "id": 11,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "query": "from(bucket: \"cranepdm_kpis\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\n  |> filter(fn: (r) => (r[\"source\"] == \"v24_unified\" or r[\"source\"] == \"live_v26\"))\n  |> filter(fn: (r) => r[\"_field\"] == \"shock_penalty\" or r[\"_field\"] == \"curr_penalty\" or r[\"_field\"] == \"track_penalty\")\n  |> pivot(rowKey:[\"_time\", \"crane_id\"], columnKey:[\"_field\"], valueColumn:\"_value\")\n  |> filter(fn: (r) => exists r.shock_penalty and exists r.curr_penalty and exists r.track_penalty)\n  |> map(fn: (r) => ({ r with _value: r.shock_penalty * r.curr_penalty * r.track_penalty }))\n  |> filter(fn: (r) => r._value > 0.0)\n  |> filter(fn: (r) => r[\"crane_id\"] =~ /${Crane_ID:regex}/)\n  |> group(columns: [\"crane_id\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)",
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "P951FEA4DE68E13C5"
+          }
+        }
+      ],
+      "title": "📈 Stress Index Stress Trend (호기별 평균 추세)",
+      "type": "timeseries"
+    }
+  ],
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": [
+    "V2.6",
+    "ReducerDamage",
+    "PdM"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "influxdb",
+          "uid": "P951FEA4DE68E13C5"
+        },
+        "definition": "import \"influxdata/influxdb/schema\"\r\nschema.tagValues(bucket: \"cranepdm_kpis\", tag: \"crane_id\")",
+        "hide": 0,
+        "includeAll": true,
+        "multi": true,
+        "name": "Crane_ID",
+        "options": [],
+        "query": "import \"influxdata/influxdb/schema\"\r\nschema.tagValues(bucket: \"cranepdm_kpis\", tag: \"crane_id\")",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query",
+        "customAllValue": ".*"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "CranePdM V2.6 - Reducer Damage Diagnostics",
+  "uid": "total_control_tower_v1",
+  "version": 6
+}

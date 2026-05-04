@@ -169,7 +169,10 @@ def set_autostart(enabled):
         key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, REG_PATH, 0, winreg.KEY_SET_VALUE)
         if enabled:
             # Get absolute path of current executable
-            exe_path = os.path.realpath(sys.executable if getattr(sys, 'frozen', False) else sys.argv[0])
+            if getattr(sys, 'frozen', False):
+                exe_path = f'"{os.path.realpath(sys.executable)}"'
+            else:
+                exe_path = f'"{sys.executable}" "{os.path.realpath(__file__)}"'
             winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, exe_path)
         else:
             try:
