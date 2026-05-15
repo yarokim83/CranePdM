@@ -70,7 +70,7 @@ CRANES = [
 # Logging Configuration
 CSV_FILE = 'crane_kpi_log.csv'
 RAW_DATA_DIR = 'raw_plc_data'  # Raw PLC samples saved here (gzip compressed)
-RAW_RETENTION_DAYS = 30        # Auto-delete raw files older than this
+RAW_RETENTION_DAYS = 90        # Auto-move raw files older than this to backups
 IDLE_POLL_RATE = 0.5    # Seconds between checks when idle
 ACTIVE_POLL_RATE = 0.1  # Version 2.6.1 - Speed-norm cap relaxed (0.05/0.10) + peak-weighted aggregation
 SPEED_THRESHOLD = 50    # Minimum speed to trigger 'movement' event
@@ -131,7 +131,8 @@ def save_raw_event(crane_id, orders, feedbacks, loads, weights, positions, dt_li
         sync_print(f"[!] [{crane_id}] Raw save error: {e}")
 
 def cleanup_old_raw_data():
-    """Delete raw data directories older than RAW_RETENTION_DAYS."""
+    """Move raw data directories older than RAW_RETENTION_DAYS to backups folder."""
+    backup_base = os.path.join("..", "backups", "raw_plc_data")
     while not stop_event.is_set():
         try:
             if os.path.exists(RAW_DATA_DIR):
@@ -143,8 +144,15 @@ def cleanup_old_raw_data():
                             dir_date = datetime.strptime(entry, '%Y-%m-%d')
                             if dir_date < cutoff:
                                 import shutil
-                                shutil.rmtree(dir_path)
-                                sync_print(f"[CLEANUP] Removed old raw data: {entry}")
+                                os.makedirs(backup_base, exist_ok=True)
+                                backup_path = os.path.join(backup_base, entry)
+                                if not os.path.exists(backup_path):
+                                    shutil.move(dir_path, backup_base)
+                                    sync_print(f"[CLEANUP] Moved old raw data to backups: {entry}")
+                                else:
+                                    # If already exists in backup, just remove the local one to save space
+                                    shutil.rmtree(dir_path)
+                                    sync_print(f"[CLEANUP] Removed old raw data (already backed up): {entry}")
                         except ValueError:
                             pass
         except Exception as e:

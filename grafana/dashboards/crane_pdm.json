@@ -93,6 +93,16 @@
               {
                 "id": "displayName",
                 "value": "호기"
+              },
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "위치별 충격량 보기",
+                    "url": "/d/crane_pos_detail/crane-position-impact-detail?var-Crane_ID=${__value.text}&from=${__url.timeRange.from}&to=${__url.timeRange.to}",
+                    "targetBlank": true
+                  }
+                ]
               }
             ]
           }
@@ -167,7 +177,14 @@
                 "value": 30
               }
             ]
-          }
+          },
+          "links": [
+            {
+              "title": "위치별 충격량 보기",
+              "url": "/d/crane_pos_detail/crane-position-impact-detail?var-Crane_ID=${__field.labels.crane_id}&from=${__url.timeRange.from}&to=${__url.timeRange.to}",
+              "targetBlank": true
+            }
+          ]
         }
       },
       "gridPos": {
@@ -387,5 +404,5 @@
   "timezone": "browser",
   "title": "CranePdM V2.6 - Reducer Damage Diagnostics",
   "uid": "total_control_tower_v1",
-  "version": 6
+  "version": null
 }
