@@ -167,7 +167,14 @@
                 "value": 50
               }
             ]
-          }
+          },
+          "links": [
+            {
+              "title": "호기 상세 Gantry 분석 열기",
+              "url": "/d/crane_pos_detail/crane-position-impact-detail?var-Crane_ID=${__field.labels.crane_id}",
+              "targetBlank": false
+            }
+          ]
         }
       },
       "gridPos": {
@@ -237,7 +244,14 @@
             "fillOpacity": 15,
             "pointSize": 6,
             "showPoints": "always"
-          }
+          },
+          "links": [
+            {
+              "title": "호기 상세 Gantry 분석 열기",
+              "url": "/d/crane_pos_detail/crane-position-impact-detail?var-Crane_ID=${__field.labels.crane_id}",
+              "targetBlank": false
+            }
+          ]
         }
       },
       "gridPos": {
