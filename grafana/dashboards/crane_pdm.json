@@ -425,7 +425,7 @@
       },
       "targets": [
         {
-          "query": "\nfrom(bucket: \"cranepdm_kpis\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\n  |> filter(fn: (r) => r[\"_field\"] == \"peak_shock\")\n  |> filter(fn: (r) => r[\"_value\"] >= 25.0)\n  |> group(columns: [\"crane_id\"])\n  |> count()\n  |> rename(columns: {_value: \"Count\"})\n  |> keep(columns: [\"crane_id\", \"Count\"])\n",
+          "query": "\nfrom(bucket: \"cranepdm_kpis\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\n  |> filter(fn: (r) => r[\"_field\"] == \"peak_shock\")\n  |> filter(fn: (r) => r[\"_value\"] >= 25.0)\n  |> group(columns: [\"crane_id\"])\n  |> count()\n  |> rename(columns: {_value: \"Count\"})\n  |> keep(columns: [\"crane_id\", \"Count\"])\n  |> group()\n",
           "refId": "A",
           "datasource": {
             "type": "influxdb",
@@ -433,7 +433,7 @@
           }
         }
       ],
-      "title": "극단치(Outlier) 발생 빈도 (Shock >= 25G)",
+      "title": "선택 기간 극단치 발생 빈도 (Shock >= 25G)",
       "type": "table",
       "transformations": []
     },
@@ -505,7 +505,7 @@
       },
       "targets": [
         {
-          "query": "\nfrom(bucket: \"cranepdm_kpis\")\n  |> range(start: -7d)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\n  |> filter(fn: (r) => r[\"_field\"] == \"peak_shock\")\n  |> group(columns: [\"crane_id\"])\n  |> max()\n  |> rename(columns: {_value: \"Max Shock\"})\n  |> keep(columns: [\"crane_id\", \"Max Shock\"])\n",
+          "query": "\nfrom(bucket: \"cranepdm_kpis\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\n  |> filter(fn: (r) => r[\"_field\"] == \"peak_shock\")\n  |> group(columns: [\"crane_id\"])\n  |> max()\n  |> rename(columns: {_value: \"Max Shock\"})\n  |> keep(columns: [\"crane_id\", \"Max Shock\"])\n  |> group()\n",
           "refId": "A",
           "datasource": {
             "type": "influxdb",
@@ -513,7 +513,7 @@
           }
         }
       ],
-      "title": "최근 7일 최고 위험도 (Max Peak Shock)",
+      "title": "선택 기간 최고 위험도 (Max Peak Shock)",
       "type": "table",
       "transformations": [
         {
