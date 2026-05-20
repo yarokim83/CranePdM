@@ -390,7 +390,7 @@
               }
             ]
           },
-          "displayName": "${__field.labels.crane_id}호"
+          "displayName": ""
         },
         "overrides": [],
         "transformations": [
@@ -435,7 +435,31 @@
       ],
       "title": "선택 기간 극단치 발생 빈도 (Shock >= 25G)",
       "type": "table",
-      "transformations": []
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "_field": true,
+              "_measurement": true,
+              "_start": true,
+              "_stop": true,
+              "algo_version": true,
+              "is_loaded": true,
+              "source": true
+            },
+            "indexByName": {
+              "crane_id": 0,
+              "Count": 1
+            },
+            "renameByName": {
+              "crane_id": "호기 (Crane ID)",
+              "Count": "발생 빈도 (회)"
+            }
+          }
+        }
+      ]
     },
     {
       "datasource": {
@@ -528,6 +552,10 @@
               "algo_version": true,
               "is_loaded": true,
               "source": true
+            },
+            "indexByName": {
+              "crane_id": 0,
+              "Max Shock": 1
             },
             "renameByName": {
               "crane_id": "호기 (Crane ID)",
