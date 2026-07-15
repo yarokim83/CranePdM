@@ -64,7 +64,20 @@ CRANES = [
     {"id": "266", "ip": "10.200.72.45", "rack": 0, "slot": 2},
     # Block 7
     {"id": "271", "ip": "10.200.72.48", "rack": 0, "slot": 2},
-    {"id": "272", "ip": "10.200.72.46", "rack": 0, "slot": 2}
+    {"id": "272", "ip": "10.200.72.46", "rack": 0, "slot": 2},
+    # QC Cranes (Full Deployment)
+    {"id": "101", "ip": "10.200.73.11", "rack": 0, "slot": 2, "type": "QC"},
+    {"id": "102", "ip": "10.200.73.12", "rack": 0, "slot": 2, "type": "QC"},
+    {"id": "103", "ip": "10.200.73.13", "rack": 0, "slot": 2, "type": "QC"},
+    {"id": "104", "ip": "10.200.73.14", "rack": 0, "slot": 2, "type": "QC"},
+    {"id": "105", "ip": "10.200.73.15", "rack": 0, "slot": 2, "type": "QC"},
+    {"id": "106", "ip": "10.200.73.16", "rack": 0, "slot": 2, "type": "QC"},
+    {"id": "107", "ip": "10.200.73.17", "rack": 0, "slot": 2, "type": "QC"},
+    {"id": "108", "ip": "10.200.73.18", "rack": 0, "slot": 2, "type": "QC"},
+    {"id": "109", "ip": "10.200.73.19", "rack": 0, "slot": 2, "type": "QC"},
+    {"id": "110", "ip": "10.200.73.20", "rack": 0, "slot": 2, "type": "QC"},
+    {"id": "111", "ip": "10.200.73.21", "rack": 0, "slot": 2, "type": "QC"},
+    {"id": "112", "ip": "10.200.73.22", "rack": 0, "slot": 2, "type": "QC"}
 ]
 
 # Logging Configuration
@@ -72,7 +85,7 @@ CSV_FILE = 'crane_kpi_log.csv'
 RAW_DATA_DIR = 'raw_plc_data'  # Raw PLC samples saved here (gzip compressed)
 RAW_RETENTION_DAYS = 90        # Auto-move raw files older than this to backups
 IDLE_POLL_RATE = 0.5    # Seconds between checks when idle
-ACTIVE_POLL_RATE = 0.1  # Version 2.6.1 - Speed-norm cap relaxed (0.05/0.10) + peak-weighted aggregation
+ACTIVE_POLL_RATE = 0.1  # Version 2.6.4 - Speed-norm cap relaxed (0.05/0.10) + peak-weighted aggregation
 SPEED_THRESHOLD = 50    # Minimum speed to trigger 'movement' event
 
 # V2.6: Geo-fence / hotspot map removed. Position is observational only.
@@ -365,7 +378,7 @@ def calculate_kpis(orders, feedbacks, loads, weights, positions, dt_list, db170_
         avg_shock = avg_curr = avg_track = 1.0
 
     return {
-        'algo_version': '2.6.1',
+        'algo_version': '2.6.4',
         'duration': round(event_duration, 2),
         'peak_order': peak_order,
         'peak_fb': peak_fb,
@@ -411,9 +424,13 @@ def log_event(crane_id, kpis):
         ])
         
     try:
+        crane_type = "QC" if crane_id.startswith("1") else "ARMGC"
+        component = "SpreaderCable" if crane_type == "QC" else "CableReel"
         point = (
             Point("crane_movement")
             .tag("crane_id", crane_id)
+            .tag("crane_type", crane_type)
+            .tag("component", component)
             .tag("source", "live_v26")
             .tag("algo_version", kpis['algo_version'])
             .tag("is_loaded", "Loaded" if kpis['is_loaded'] else "Empty")
@@ -455,12 +472,108 @@ def log_fault_event(crane_id, fault_name, position):
     except Exception as e:
         sync_print(f"[!] [{crane_id}] Fault InfluxDB Error: {e}")
 
+def monitor_qc_spreader(crane_config):
+    crane_id = crane_config['id']
+    ip = crane_config['ip']
+    rack = crane_config['rack']
+    slot = crane_config['slot']
+    
+    QC_SPEED_THRESHOLD = 10  # Sensitive trigger for slower QC spreader reel
+    client = snap7.client.Client()
+    import struct
+    prev_slack = False # Not used but declared for parity
+    
+    while not stop_event.is_set():
+        try:
+            if not client.get_connected():
+                sync_print(f"[{datetime.now().strftime('%H:%M:%S')}] [{crane_id}] Connecting to QC PLC {ip}...")
+                client.connect(ip, rack, slot)
+                time.sleep(1)
+                continue
+            
+            # Check IDLE state (Poll slowly from DB180)
+            try:
+                data = client.db_read(180, 0, 12)
+                current_speed = struct.unpack('>h', data[6:8])[0]
+            except Exception as read_err:
+                sync_print(f"[!] [{crane_id}] QC Idle read error: {read_err}")
+                time.sleep(IDLE_POLL_RATE)
+                continue
+                
+            if abs(current_speed) < QC_SPEED_THRESHOLD:
+                # Spreader is idle
+                time.sleep(IDLE_POLL_RATE)
+                continue
+                
+            # Movement Detected -> Switch to Active Logging
+            sync_print(f"\n[MOVE] [{crane_id}] QC Spreader Movement! Speed: {current_speed}. Recording...")
+            orders, feedbacks, loads, weights, positions, dt_list, db180_list = [], [], [], [], [], [], []
+            last_time = time.time()
+            
+            while not stop_event.is_set():
+                cycle_start = time.time()
+                try:
+                    data = client.db_read(180, 0, 12)
+                    speed = struct.unpack('>h', data[6:8])[0]
+                    current = struct.unpack('>h', data[8:10])[0]
+                    torque = struct.unpack('>h', data[10:12])[0]
+                    
+                    # Record data point
+                    now = time.time()
+                    dt_list.append(now - last_time)
+                    last_time = now
+                    
+                    # QC Spreader has no order/feedback distinction, map both to speed
+                    orders.append(speed)
+                    feedbacks.append(speed)
+                    loads.append(False)
+                    weights.append(1.0)
+                    positions.append(0.0)
+                    db180_list.append((speed, current, torque))
+                    
+                    # Stop Condition: Speed returns near 0
+                    if abs(speed) < QC_SPEED_THRESHOLD:
+                        sync_print(f"[STOP] [{crane_id}] QC Spreader Stopped. Analyzing {len(orders)} points...")
+                        break
+                        
+                except Exception as ex_read:
+                    sync_print(f"[!] [{crane_id}] QC Active read error: {ex_read}")
+                    break
+                
+                # Maintain active poll rate
+                elapsed = time.time() - cycle_start
+                sleep_time = max(0, ACTIVE_POLL_RATE - elapsed)
+                time.sleep(sleep_time)
+                
+            # Event finished, calculate and log KPIs
+            if orders:
+                kpis = calculate_kpis(orders, feedbacks, loads, weights, positions, dt_list, db180_list)
+                if kpis is None:
+                    sync_print(f"[{crane_id}] DB180 데이터 없음 — 이벤트 폐기.")
+                elif kpis['duration'] <= 3.0:
+                    sync_print(f"[{crane_id}] QC Event too short ({kpis['duration']}s), ignored.")
+                else:
+                    log_event(crane_id, kpis)
+                    save_raw_event(crane_id, orders, feedbacks, loads, weights, positions, dt_list, db180_list)
+                    
+        except Exception as e:
+            sync_print(f"[!] [{crane_id}] QC Connection error: {e}. Retrying in 5 seconds...")
+            try:
+                client.disconnect()
+            except:
+                pass
+            time.sleep(5)
+
 def monitor_crane(crane_config):
     crane_id = crane_config['id']
     ip = crane_config['ip']
     rack = crane_config['rack']
     slot = crane_config['slot']
     
+    if crane_config.get('type') == 'QC':
+        monitor_qc_spreader(crane_config)
+        return
+        
     client = snap7.client.Client()
     prev_slack = False
     

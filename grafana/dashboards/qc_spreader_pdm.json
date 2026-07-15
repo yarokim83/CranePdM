@@ -1,0 +1,604 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "P951FEA4DE68E13C5"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "center",
+            "cellOptions": {
+              "type": "auto"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 25
+              },
+              {
+                "color": "red",
+                "value": 30
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "_value"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Avg Stress Index"
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 40
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "gradient",
+                  "type": "gauge",
+                  "valueDisplayMode": "text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "crane_id"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "QC 호기"
+              }
+            ]
+          }
+        ],
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {
+                "time": true
+              },
+              "indexByName": {
+                "crane_id": 0,
+                "_value": 1
+              },
+              "renameByName": {
+                "_value": "Avg Stress Index",
+                "crane_id": "QC 호기"
+              }
+            }
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 7,
+        "x": 0,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "query": "from(bucket: \"cranepdm_kpis\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\n  |> filter(fn: (r) => r[\"crane_type\"] == \"QC\" and r[\"component\"] == \"SpreaderCable\")\n  |> filter(fn: (r) => r[\"_field\"] == \"shock_penalty\" or r[\"_field\"] == \"curr_penalty\" or r[\"_field\"] == \"track_penalty\")\n  |> pivot(rowKey:[\"_time\", \"crane_id\"], columnKey:[\"_field\"], valueColumn:\"_value\")\n  |> filter(fn: (r) => exists r.shock_penalty and exists r.curr_penalty and exists r.track_penalty)\n  |> map(fn: (r) => ({ r with _value: r.shock_penalty * r.curr_penalty * r.track_penalty }))\n  |> filter(fn: (r) => r._value > 0.0)\n  |> group(columns: [\"crane_id\"])\n  |> mean()\n  |> group()\n  |> sort(columns: [\"_value\"], desc: true)\n  |> limit(n: 5)\n  |> keep(columns: [\"crane_id\", \"_value\"])",
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "P951FEA4DE68E13C5"
+          }
+        }
+      ],
+      "title": "🔥 Top QC Cranes (Stress Index)",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "P951FEA4DE68E13C5"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "displayName": "${__field.labels.crane_id}",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 25
+              },
+              {
+                "color": "red",
+                "value": 30
+              }
+            ]
+          }
+        }
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 17,
+        "x": 7,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "colorMode": "background",
+        "reduceOptions": {
+          "calcs": [
+            "mean"
+          ]
+        },
+        "textMode": "value_and_name",
+        "text": {
+          "titleSize": 24,
+          "valueSize": 12
+        }
+      },
+      "targets": [
+        {
+          "query": "from(bucket: \"cranepdm_kpis\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\n  |> filter(fn: (r) => r[\"crane_type\"] == \"QC\" and r[\"component\"] == \"SpreaderCable\")\n  |> filter(fn: (r) => r[\"_field\"] == \"shock_penalty\" or r[\"_field\"] == \"curr_penalty\" or r[\"_field\"] == \"track_penalty\")\n  |> pivot(rowKey:[\"_time\", \"crane_id\"], columnKey:[\"_field\"], valueColumn:\"_value\")\n  |> filter(fn: (r) => exists r.shock_penalty and exists r.curr_penalty and exists r.track_penalty)\n  |> map(fn: (r) => ({ r with _value: r.shock_penalty * r.curr_penalty * r.track_penalty }))\n  |> filter(fn: (r) => r._value > 0.0)\n  |> group(columns: [\"crane_id\"])\n  |> mean()",
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "P951FEA4DE68E13C5"
+          }
+        }
+      ],
+      "title": "🛰️ QC 12대 (Spreader Cable Stress Index)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "P951FEA4DE68E13C5"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "displayName": "${__field.labels.crane_id}",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 25
+              },
+              {
+                "color": "red",
+                "value": 30
+              }
+            ]
+          },
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "line"
+            },
+            "drawStyle": "line",
+            "lineWidth": 3,
+            "fillOpacity": 15,
+            "pointSize": 6,
+            "showPoints": "always"
+          }
+        }
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 7
+      },
+      "id": 12,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "query": "from(bucket: \"cranepdm_kpis\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\n  |> filter(fn: (r) => r[\"crane_type\"] == \"QC\" and r[\"component\"] == \"SpreaderCable\")\n  |> filter(fn: (r) => r[\"_field\"] == \"shock_penalty\" or r[\"_field\"] == \"curr_penalty\" or r[\"_field\"] == \"track_penalty\")\n  |> pivot(rowKey:[\"_time\", \"crane_id\"], columnKey:[\"_field\"], valueColumn:\"_value\")\n  |> filter(fn: (r) => exists r.shock_penalty and exists r.curr_penalty and exists r.track_penalty)\n  |> map(fn: (r) => ({ r with _value: r.shock_penalty * r.curr_penalty * r.track_penalty }))\n  |> filter(fn: (r) => r._value > 0.0)\n  |> filter(fn: (r) => r[\"crane_id\"] =~ /${Crane_ID:regex}/)\n  |> group(columns: [\"crane_id\"])\n  |> aggregateWindow(every: 1d, fn: mean, createEmpty: false, timeSrc: \"_start\")",
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "P951FEA4DE68E13C5"
+          }
+        }
+      ],
+      "title": "📅 QC 일일 Stress Index 트렌드",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "P951FEA4DE68E13C5"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "displayName": "${__field.labels.crane_id}",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 25
+              },
+              {
+                "color": "red",
+                "value": 30
+              }
+            ]
+          },
+          "custom": {
+            "thresholdsStyle": {
+              "mode": "line"
+            },
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "pointSize": 5,
+            "showPoints": "always"
+          }
+        }
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 17
+      },
+      "id": 11,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "mean",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "query": "from(bucket: \"cranepdm_kpis\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\n  |> filter(fn: (r) => r[\"crane_type\"] == \"QC\" and r[\"component\"] == \"SpreaderCable\")\n  |> filter(fn: (r) => r[\"_field\"] == \"shock_penalty\" or r[\"_field\"] == \"curr_penalty\" or r[\"_field\"] == \"track_penalty\")\n  |> pivot(rowKey:[\"_time\", \"crane_id\"], columnKey:[\"_field\"], valueColumn:\"_value\")\n  |> filter(fn: (r) => exists r.shock_penalty and exists r.curr_penalty and exists r.track_penalty)\n  |> map(fn: (r) => ({ r with _value: r.shock_penalty * r.curr_penalty * r.track_penalty }))\n  |> filter(fn: (r) => r._value > 0.0)\n  |> filter(fn: (r) => r[\"crane_id\"] =~ /${Crane_ID:regex}/)\n  |> group(columns: [\"crane_id\"])\n  |> aggregateWindow(every: v.windowPeriod, fn: mean, createEmpty: false)",
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "P951FEA4DE68E13C5"
+          }
+        }
+      ],
+      "title": "📈 QC Stress Index Trend (호기별 평균 추세)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "P951FEA4DE68E13C5"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "center",
+            "cellOptions": {
+              "type": "auto"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 5
+              },
+              {
+                "color": "red",
+                "value": 15
+              }
+            ]
+          },
+          "displayName": ""
+        },
+        "overrides": [],
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {
+                "time": true
+              },
+              "indexByName": {
+                "crane_id": 0,
+                "_value": 1
+              },
+              "renameByName": {
+                "_value": "Count",
+                "crane_id": "호기"
+              }
+            }
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 29
+      },
+      "id": 101,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "query": "from(bucket: \"cranepdm_kpis\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\n  |> filter(fn: (r) => r[\"crane_type\"] == \"QC\" and r[\"component\"] == \"SpreaderCable\")\n  |> filter(fn: (r) => r[\"_field\"] == \"peak_shock\")\n  |> filter(fn: (r) => r[\"_value\"] >= 25.0)\n  |> group(columns: [\"crane_id\"])\n  |> count()\n  |> rename(columns: {_value: \"Count\"})\n  |> keep(columns: [\"crane_id\", \"Count\"])\n  |> group()\n  |> sort(columns: [\"Count\"], desc: true)\n",
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "P951FEA4DE68E13C5"
+          }
+        }
+      ],
+      "title": "선택 기간 극단치 발생 빈도 (Shock >= 25G)",
+      "type": "table",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "_field": true,
+              "_measurement": true,
+              "_start": true,
+              "_stop": true,
+              "algo_version": true,
+              "is_loaded": true,
+              "source": true,
+              "crane_type": true,
+              "component": true
+            },
+            "indexByName": {
+              "crane_id": 0,
+              "Count": 1
+            },
+            "renameByName": {
+              "crane_id": "QC 호기",
+              "Count": "발생 빈도 (회)"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "influxdb",
+        "uid": "P951FEA4DE68E13C5"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "center",
+            "cellOptions": {
+              "type": "auto"
+            }
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 24
+              },
+              {
+                "color": "red",
+                "value": 30
+              }
+            ]
+          },
+          "displayName": ""
+        },
+        "overrides": [],
+        "transformations": [
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {
+                "time": true
+              },
+              "indexByName": {
+                "crane_id": 0,
+                "_value": 1
+              },
+              "renameByName": {
+                "_value": "Max Shock",
+                "crane_id": "호기"
+              }
+            }
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 29
+      },
+      "id": 102,
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "query": "from(bucket: \"cranepdm_kpis\")\n  |> range(start: v.timeRangeStart, stop: v.timeRangeStop)\n  |> filter(fn: (r) => r[\"_measurement\"] == \"crane_movement\")\n  |> filter(fn: (r) => r[\"crane_type\"] == \"QC\" and r[\"component\"] == \"SpreaderCable\")\n  |> filter(fn: (r) => r[\"_field\"] == \"peak_shock\")\n  |> group(columns: [\"crane_id\"])\n  |> max()\n  |> rename(columns: {_value: \"Max Shock\"})\n  |> keep(columns: [\"crane_id\", \"Max Shock\"])\n  |> group()\n  |> sort(columns: [\"Max Shock\"], desc: true)\n",
+          "refId": "A",
+          "datasource": {
+            "type": "influxdb",
+            "uid": "P951FEA4DE68E13C5"
+          }
+        }
+      ],
+      "title": "선택 기간 최고 위험도 (Max Peak Shock)",
+      "type": "table",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "_field": true,
+              "_measurement": true,
+              "_start": true,
+              "_stop": true,
+              "algo_version": true,
+              "is_loaded": true,
+              "source": true,
+              "crane_type": true,
+              "component": true
+            },
+            "indexByName": {
+              "crane_id": 0,
+              "Max Shock": 1
+            },
+            "renameByName": {
+              "crane_id": "QC 호기",
+              "Max Shock": "최고 충격량 (G)"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": [
+    "QC",
+    "SpreaderCable",
+    "PdM"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "influxdb",
+          "uid": "P951FEA4DE68E13C5"
+        },
+        "definition": "import \"influxdata/influxdb/schema\"\r\nschema.tagValues(bucket: \"cranepdm_kpis\", tag: \"crane_id\")",
+        "hide": 0,
+        "includeAll": true,
+        "multi": true,
+        "name": "Crane_ID",
+        "options": [],
+        "query": "import \"influxdata/influxdb/schema\"\r\nschema.tagValues(bucket: \"cranepdm_kpis\", tag: \"crane_id\")",
+        "refresh": 1,
+        "regex": "/^1.*/",
+        "skipUrlSync": false,
+        "sort": 0,
+        "type": "query",
+        "customAllValue": ".*"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "timepicker": {},
+
+  "timezone": "browser",
+  "title": "QC Spreader Cable Reducer Diagnostics",
+  "uid": "qc_spreader_pdm",
+  "version": 1
+}
