@@ -85,7 +85,7 @@ CSV_FILE = 'crane_kpi_log.csv'
 RAW_DATA_DIR = 'raw_plc_data'  # Raw PLC samples saved here (gzip compressed)
 RAW_RETENTION_DAYS = 90        # Auto-move raw files older than this to backups
 IDLE_POLL_RATE = 0.5    # Seconds between checks when idle
-ACTIVE_POLL_RATE = 0.1  # Version 2.6.4 - Speed-norm cap relaxed (0.05/0.10) + peak-weighted aggregation
+ACTIVE_POLL_RATE = 0.1  # Version 2.6.5 - Speed-norm cap relaxed (0.05/0.10) + peak-weighted aggregation
 SPEED_THRESHOLD = 50    # Minimum speed to trigger 'movement' event
 
 # V2.6: Geo-fence / hotspot map removed. Position is observational only.
@@ -378,7 +378,7 @@ def calculate_kpis(orders, feedbacks, loads, weights, positions, dt_list, db170_
         avg_shock = avg_curr = avg_track = 1.0
 
     return {
-        'algo_version': '2.6.4',
+        'algo_version': '2.6.5',
         'duration': round(event_duration, 2),
         'peak_order': peak_order,
         'peak_fb': peak_fb,
@@ -426,12 +426,13 @@ def log_event(crane_id, kpis):
     try:
         crane_type = "QC" if crane_id.startswith("1") else "ARMGC"
         component = "SpreaderCable" if crane_type == "QC" else "CableReel"
+        source_tag = "live_qc_v26" if crane_type == "QC" else "live_v26"
         point = (
             Point("crane_movement")
             .tag("crane_id", crane_id)
             .tag("crane_type", crane_type)
             .tag("component", component)
-            .tag("source", "live_v26")
+            .tag("source", source_tag)
             .tag("algo_version", kpis['algo_version'])
             .tag("is_loaded", "Loaded" if kpis['is_loaded'] else "Empty")
             .field("duration_s", float(kpis['duration']))
