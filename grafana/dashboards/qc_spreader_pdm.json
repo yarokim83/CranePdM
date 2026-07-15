@@ -571,22 +571,28 @@
           "text": "All",
           "value": "$__all"
         },
-        "datasource": {
-          "type": "influxdb",
-          "uid": "P951FEA4DE68E13C5"
-        },
-        "definition": "import \"influxdata/influxdb/schema\"\r\nschema.tagValues(bucket: \"cranepdm_kpis\", tag: \"crane_id\")",
         "hide": 0,
         "includeAll": true,
         "multi": true,
         "name": "Crane_ID",
-        "options": [],
-        "query": "import \"influxdata/influxdb/schema\"\r\nschema.tagValues(bucket: \"cranepdm_kpis\", tag: \"crane_id\")",
-        "refresh": 1,
-        "regex": "/^1.*/",
+        "options": [
+          { "selected": true, "text": "All", "value": "$__all" },
+          { "selected": false, "text": "101", "value": "101" },
+          { "selected": false, "text": "102", "value": "102" },
+          { "selected": false, "text": "103", "value": "103" },
+          { "selected": false, "text": "104", "value": "104" },
+          { "selected": false, "text": "105", "value": "105" },
+          { "selected": false, "text": "106", "value": "106" },
+          { "selected": false, "text": "107", "value": "107" },
+          { "selected": false, "text": "108", "value": "108" },
+          { "selected": false, "text": "109", "value": "109" },
+          { "selected": false, "text": "110", "value": "110" },
+          { "selected": false, "text": "111", "value": "111" },
+          { "selected": false, "text": "112", "value": "112" }
+        ],
+        "query": "101,102,103,104,105,106,107,108,109,110,111,112",
         "skipUrlSync": false,
-        "sort": 0,
-        "type": "query",
+        "type": "custom",
         "customAllValue": ".*"
       }
     ]
