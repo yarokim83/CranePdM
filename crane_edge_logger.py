@@ -85,7 +85,7 @@ CSV_FILE = 'crane_kpi_log.csv'
 RAW_DATA_DIR = 'raw_plc_data'  # Raw PLC samples saved here (gzip compressed)
 RAW_RETENTION_DAYS = 90        # Auto-move raw files older than this to backups
 IDLE_POLL_RATE = 0.5    # Seconds between checks when idle
-ACTIVE_POLL_RATE = 0.1  # Version 2.6.5 - Speed-norm cap relaxed (0.05/0.10) + peak-weighted aggregation
+ACTIVE_POLL_RATE = 0.1  # Version 2.6.7 - Speed-norm cap relaxed (0.05/0.10) + peak-weighted aggregation
 SPEED_THRESHOLD = 50    # Minimum speed to trigger 'movement' event
 
 # V2.6: Geo-fence / hotspot map removed. Position is observational only.
@@ -378,7 +378,7 @@ def calculate_kpis(orders, feedbacks, loads, weights, positions, dt_list, db170_
         avg_shock = avg_curr = avg_track = 1.0
 
     return {
-        'algo_version': '2.6.5',
+        'algo_version': '2.6.7',
         'duration': round(event_duration, 2),
         'peak_order': peak_order,
         'peak_fb': peak_fb,
@@ -479,7 +479,7 @@ def monitor_qc_spreader(crane_config):
     rack = crane_config['rack']
     slot = crane_config['slot']
     
-    QC_SPEED_THRESHOLD = 10  # Sensitive trigger for slower QC spreader reel
+    QC_SPEED_THRESHOLD = 3  # Sensitive trigger for slower QC spreader reel (tuned from 10 to 3)
     client = snap7.client.Client()
     import struct
     prev_slack = False # Not used but declared for parity
@@ -551,7 +551,7 @@ def monitor_qc_spreader(crane_config):
                 kpis = calculate_kpis(orders, feedbacks, loads, weights, positions, dt_list, db180_list)
                 if kpis is None:
                     sync_print(f"[{crane_id}] DB180 데이터 없음 — 이벤트 폐기.")
-                elif kpis['duration'] <= 3.0:
+                elif kpis['duration'] <= 1.5:
                     sync_print(f"[{crane_id}] QC Event too short ({kpis['duration']}s), ignored.")
                 else:
                     log_event(crane_id, kpis)
@@ -688,8 +688,42 @@ def monitor_crane(crane_config):
                 pass
             time.sleep(5)
 
+def initialize_influx_kpis():
+    """
+    Ensure all cranes (especially newly added QC cranes 101~112) have at least one 
+    heartbeat initialization record in InfluxDB, so that Grafana panels and variables 
+    can render all crane tiles statically without waiting for their first physical movement.
+    """
+    sync_print("Initializing InfluxDB heartbeat records for all configured cranes...")
+    init_kpis = {
+        'algo_version': '2.6.6',
+        'duration': 0.0,
+        'peak_order': 0.0,
+        'peak_fb': 0.0,
+        'max_error': 0.0,
+        'rms_error': 0.0,
+        'reducer_damage': 0.0,
+        'avg_weight': 1.0,
+        'shock_penalty': 1.0,
+        'peak_shock': 0.0,
+        'curr_penalty': 1.0,
+        'track_penalty': 1.0,
+        'start_pos': 0.0,
+        'end_pos': 0.0,
+        'avg_pos': 0.0,
+        'peak_shock_pos': 0.0,
+        'is_loaded': False
+    }
+    for crane in CRANES:
+        cid = crane['id']
+        try:
+            log_event(cid, init_kpis)
+        except Exception as e:
+            sync_print(f"[!] Initialization failed for crane {cid}: {e}")
+
 def main():
     init_csv()
+    initialize_influx_kpis()
     sync_print(f"Edge Logger Started. Monitoring {len(CRANES)} cranes...")
     
     # Start cleanup thread
