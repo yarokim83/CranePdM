@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 from influxdb_client import InfluxDBClient, Point
 from influxdb_client.client.write_api import SYNCHRONOUS
 import threading
+import numpy as np
 import sys
 import pystray
 from PIL import Image
@@ -85,7 +86,7 @@ CSV_FILE = 'crane_kpi_log.csv'
 RAW_DATA_DIR = 'raw_plc_data'  # Raw PLC samples saved here (gzip compressed)
 RAW_RETENTION_DAYS = 90        # Auto-move raw files older than this to backups
 IDLE_POLL_RATE = 0.5    # Seconds between checks when idle
-ACTIVE_POLL_RATE = 0.1  # Version 2.6.7 - Speed-norm cap relaxed (0.05/0.10) + peak-weighted aggregation
+ACTIVE_POLL_RATE = 0.1  # Version 3.0.0 - QC SCR Dedicated Hoist & Manual Operation Algorithm V3.0
 SPEED_THRESHOLD = 50    # Minimum speed to trigger 'movement' event
 
 # V2.6: Geo-fence / hotspot map removed. Position is observational only.
@@ -378,7 +379,7 @@ def calculate_kpis(orders, feedbacks, loads, weights, positions, dt_list, db170_
         avg_shock = avg_curr = avg_track = 1.0
 
     return {
-        'algo_version': '2.6.7',
+        'algo_version': '3.0.0',
         'duration': round(event_duration, 2),
         'peak_order': peak_order,
         'peak_fb': peak_fb,
@@ -395,6 +396,83 @@ def calculate_kpis(orders, feedbacks, loads, weights, positions, dt_list, db170_
         'start_pos': positions[0],
         'end_pos': positions[-1],
         'avg_pos': round(avg_pos, 1)
+    }
+
+def calculate_kpis_qc(orders, feedbacks, loads, weights, positions, dt_list, db180_list):
+    """
+    QC SCR V3.0 Dedicated KPI calculation function.
+    Tailored for Hoist (Vertical Lifting) mechanism & Manual Driver Operation.
+    Replaces track_penalty with load_factor, and tunes current/shock penalties for Hoist drive.
+    """
+    if not orders or not dt_list or not db180_list:
+        return None
+        
+    event_duration = sum(dt_list)
+    if event_duration <= 0:
+        return None
+
+    valid_db180 = [v for v in db180_list if v is not None]
+    if not valid_db180:
+        return None
+
+    speeds = [v[0] for v in valid_db180]
+    currents = [v[1] for v in valid_db180]
+    torques = [v[2] for v in valid_db180]
+    
+    peak_speed = max([abs(s) for s in speeds]) if speeds else 0.0
+    avg_weight = sum(weights) / len(weights) if weights else 1.0
+    is_loaded = any(loads) if loads else False
+
+    # 1. Manual Operation Shock Penalty:
+    # Captures manual joystick dynamic spikes in torque d(Torque)/dt & speed acceleration d(Speed)/dt
+    dt_arr = np.array(dt_list[:len(valid_db180)])
+    dt_arr = np.where(dt_arr <= 0, 0.1, dt_arr)
+    
+    torque_arr = np.array(torques, dtype=float)
+    speed_arr = np.array(speeds, dtype=float)
+    
+    d_torque = np.abs(np.diff(torque_arr, prepend=torque_arr[0])) / dt_arr
+    d_speed = np.abs(np.diff(speed_arr, prepend=speed_arr[0])) / dt_arr
+    
+    raw_shock_list = 1.0 + 0.02 * d_torque + 0.02 * d_speed
+    shock_penalty = float(np.percentile(raw_shock_list, 95))
+    peak_shock = float(np.max(raw_shock_list))
+
+    # 2. Hoist Drive Current Penalty:
+    # Offset base idling/holding current (~30 Amps) and evaluate over-current ratio
+    curr_ratios = []
+    for c, t in zip(currents, torques):
+        adj_curr = max(0.0, abs(c) - 30.0)
+        t_abs = abs(t) + 1.0
+        curr_ratios.append(adj_curr / t_abs)
+        
+    avg_curr_ratio = sum(curr_ratios) / len(curr_ratios) if curr_ratios else 0.0
+    curr_penalty = min(5.0, max(1.0, 1.0 + 0.15 * avg_curr_ratio))
+
+    # 3. Hoist Load Factor (Replaces track_penalty):
+    # Weight load factor: 1.0 base, increases slightly if load/weight is heavy
+    w_effective = avg_weight if is_loaded else 1.0
+    load_factor = min(3.0, max(1.0, 1.0 + 0.02 * max(0.0, w_effective - 10.0)))
+
+    return {
+        'algo_version': '3.0.0',
+        'duration': round(event_duration, 2),
+        'peak_order': peak_speed,
+        'peak_fb': peak_speed,
+        'max_error': 0.0,
+        'rms_error': 0.0,
+        'reducer_damage': round(shock_penalty * curr_penalty * load_factor * (event_duration / 10.0), 2),
+        'avg_weight': round(avg_weight, 1),
+        'is_loaded': is_loaded,
+        'shock_penalty': round(shock_penalty, 3),
+        'peak_shock': round(peak_shock, 3),
+        'peak_shock_pos': 0.0,
+        'curr_penalty': round(curr_penalty, 3),
+        'track_penalty': round(load_factor, 3), # Log CSV compatibility
+        'load_factor': round(load_factor, 3),
+        'start_pos': 0.0,
+        'end_pos': 0.0,
+        'avg_pos': 0.0
     }
 
 def log_event(crane_id, kpis):
@@ -426,7 +504,9 @@ def log_event(crane_id, kpis):
     try:
         crane_type = "QC" if crane_id.startswith("1") else "ARMGC"
         component = "SpreaderCable" if crane_type == "QC" else "CableReel"
-        source_tag = "live_qc_v26" if crane_type == "QC" else "live_v26"
+        source_tag = "live_qc_v30" if crane_type == "QC" else "live_v26"
+        load_val = float(kpis.get('load_factor', kpis.get('track_penalty', 1.0)))
+        
         point = (
             Point("crane_movement")
             .tag("crane_id", crane_id)
@@ -446,6 +526,7 @@ def log_event(crane_id, kpis):
             .field("peak_shock", float(kpis['peak_shock']))
             .field("curr_penalty", float(kpis['curr_penalty']))
             .field("track_penalty", float(kpis['track_penalty']))
+            .field("load_factor", load_val)
             .field("start_pos", float(kpis['start_pos']))
             .field("end_pos", float(kpis['end_pos']))
             .field("avg_pos", float(kpis['avg_pos']))
@@ -548,7 +629,7 @@ def monitor_qc_spreader(crane_config):
                 
             # Event finished, calculate and log KPIs
             if orders:
-                kpis = calculate_kpis(orders, feedbacks, loads, weights, positions, dt_list, db180_list)
+                kpis = calculate_kpis_qc(orders, feedbacks, loads, weights, positions, dt_list, db180_list)
                 if kpis is None:
                     sync_print(f"[{crane_id}] DB180 데이터 없음 — 이벤트 폐기.")
                 elif kpis['duration'] <= 1.5:
@@ -696,7 +777,7 @@ def initialize_influx_kpis():
     """
     sync_print("Initializing InfluxDB heartbeat records for all configured cranes...")
     init_kpis = {
-        'algo_version': '2.6.6',
+        'algo_version': '3.0.0',
         'duration': 0.0,
         'peak_order': 0.0,
         'peak_fb': 0.0,
@@ -708,6 +789,7 @@ def initialize_influx_kpis():
         'peak_shock': 0.0,
         'curr_penalty': 1.0,
         'track_penalty': 1.0,
+        'load_factor': 1.0,
         'start_pos': 0.0,
         'end_pos': 0.0,
         'avg_pos': 0.0,
