@@ -55,3 +55,6 @@ backup_*/
 # Analysis output
 *_out.txt
 analysis_out.txt
+
+*.old
+*.log

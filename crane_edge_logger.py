@@ -78,7 +78,7 @@ CRANES = [
     {"id": "109", "ip": "10.200.73.19", "rack": 0, "slot": 2, "type": "QC"},
     {"id": "110", "ip": "10.200.73.20", "rack": 0, "slot": 2, "type": "QC"},
     {"id": "111", "ip": "10.200.73.21", "rack": 0, "slot": 2, "type": "QC"},
-    {"id": "112", "ip": "10.200.73.22", "rack": 0, "slot": 2, "type": "QC"}
+    {"id": "112", "ip": "10.200.73.22", "rack": 0, "slot": 2, "type": "QC", "drive": "SINAMICS"}
 ]
 
 # Logging Configuration
@@ -86,7 +86,7 @@ CSV_FILE = 'crane_kpi_log.csv'
 RAW_DATA_DIR = 'raw_plc_data'  # Raw PLC samples saved here (gzip compressed)
 RAW_RETENTION_DAYS = 90        # Auto-move raw files older than this to backups
 IDLE_POLL_RATE = 0.5    # Seconds between checks when idle
-ACTIVE_POLL_RATE = 0.1  # Version 3.0.0 - QC SCR Dedicated Hoist & Manual Operation Algorithm V3.0
+ACTIVE_POLL_RATE = 0.1  # Version 3.1.0 - QC 112 SINAMICS Drive Scale Normalization (Raw preserved, KPI normalized)
 SPEED_THRESHOLD = 50    # Minimum speed to trigger 'movement' event
 
 # V2.6: Geo-fence / hotspot map removed. Position is observational only.
@@ -379,7 +379,7 @@ def calculate_kpis(orders, feedbacks, loads, weights, positions, dt_list, db170_
         avg_shock = avg_curr = avg_track = 1.0
 
     return {
-        'algo_version': '3.0.0',
+        'algo_version': '3.1.0',
         'duration': round(event_duration, 2),
         'peak_order': peak_order,
         'peak_fb': peak_fb,
@@ -398,11 +398,19 @@ def calculate_kpis(orders, feedbacks, loads, weights, positions, dt_list, db170_
         'avg_pos': round(avg_pos, 1)
     }
 
-def calculate_kpis_qc(orders, feedbacks, loads, weights, positions, dt_list, db180_list):
+# QC 112 (Siemens SINAMICS Drive) -> Masterdrive (QC 101~111) Normalization Scale Factors
+# Raw PLC DB180 files (raw_plc_data) preserve unscaled PLC values; normalization is applied only in calculate_kpis_qc().
+QC_SINAMICS_CRANES = {"112"}
+SINAMICS_SPEED_SCALE = 0.667    # SINAMICS speed range (~1350-1600) -> Masterdrive (~850-1000)
+SINAMICS_CURR_SCALE = 1.65      # SINAMICS current range (idle ~20, max ~28) -> Masterdrive (idle ~30, max ~46)
+SINAMICS_TORQUE_SCALE = 3.50    # SINAMICS torque range (idle ~27, max ~40) -> Masterdrive (idle ~90, max ~140)
+SINAMICS_SHOCK_DAMPING = 0.43   # SINAMICS ramp d(Speed)/dt & d(Torque)/dt damping to match Masterdrive baseline (~5.0)
+
+def calculate_kpis_qc(orders, feedbacks, loads, weights, positions, dt_list, db180_list, crane_id=None):
     """
-    QC SCR V3.0 Dedicated KPI calculation function.
+    QC SCR V3.1 Dedicated KPI calculation function.
     Tailored for Hoist (Vertical Lifting) mechanism & Manual Driver Operation.
-    Replaces track_penalty with load_factor, and tunes current/shock penalties for Hoist drive.
+    Includes scale normalization for QC 112 (Siemens SINAMICS drive) while keeping raw PLC logs unscaled.
     """
     if not orders or not dt_list or not db180_list:
         return None
@@ -415,11 +423,19 @@ def calculate_kpis_qc(orders, feedbacks, loads, weights, positions, dt_list, db1
     if not valid_db180:
         return None
 
-    speeds = [v[0] for v in valid_db180]
-    currents = [v[1] for v in valid_db180]
-    torques = [v[2] for v in valid_db180]
+    is_sinamics = (str(crane_id) in QC_SINAMICS_CRANES)
+    if is_sinamics:
+        speeds = [v[0] * SINAMICS_SPEED_SCALE for v in valid_db180]
+        currents = [v[1] * SINAMICS_CURR_SCALE for v in valid_db180]
+        torques = [v[2] * SINAMICS_TORQUE_SCALE for v in valid_db180]
+        shock_coeff = 0.02 * SINAMICS_SHOCK_DAMPING
+    else:
+        speeds = [float(v[0]) for v in valid_db180]
+        currents = [float(v[1]) for v in valid_db180]
+        torques = [float(v[2]) for v in valid_db180]
+        shock_coeff = 0.02
     
-    peak_speed = max([abs(s) for s in speeds]) if speeds else 0.0
+    peak_speed = round(max([abs(s) for s in speeds]), 1) if speeds else 0.0
     avg_weight = sum(weights) / len(weights) if weights else 1.0
     is_loaded = any(loads) if loads else False
 
@@ -434,7 +450,7 @@ def calculate_kpis_qc(orders, feedbacks, loads, weights, positions, dt_list, db1
     d_torque = np.abs(np.diff(torque_arr, prepend=torque_arr[0])) / dt_arr
     d_speed = np.abs(np.diff(speed_arr, prepend=speed_arr[0])) / dt_arr
     
-    raw_shock_list = 1.0 + 0.02 * d_torque + 0.02 * d_speed
+    raw_shock_list = 1.0 + shock_coeff * d_torque + shock_coeff * d_speed
     shock_penalty = float(np.percentile(raw_shock_list, 95))
     peak_shock = float(np.max(raw_shock_list))
 
@@ -455,7 +471,7 @@ def calculate_kpis_qc(orders, feedbacks, loads, weights, positions, dt_list, db1
     load_factor = min(3.0, max(1.0, 1.0 + 0.02 * max(0.0, w_effective - 10.0)))
 
     return {
-        'algo_version': '3.0.0',
+        'algo_version': '3.1.0',
         'duration': round(event_duration, 2),
         'peak_order': peak_speed,
         'peak_fb': peak_speed,
@@ -629,7 +645,7 @@ def monitor_qc_spreader(crane_config):
                 
             # Event finished, calculate and log KPIs
             if orders:
-                kpis = calculate_kpis_qc(orders, feedbacks, loads, weights, positions, dt_list, db180_list)
+                kpis = calculate_kpis_qc(orders, feedbacks, loads, weights, positions, dt_list, db180_list, crane_id=crane_id)
                 if kpis is None:
                     sync_print(f"[{crane_id}] DB180 데이터 없음 — 이벤트 폐기.")
                 elif kpis['duration'] <= 1.5:
@@ -777,7 +793,7 @@ def initialize_influx_kpis():
     """
     sync_print("Initializing InfluxDB heartbeat records for all configured cranes...")
     init_kpis = {
-        'algo_version': '3.0.0',
+        'algo_version': '3.1.0',
         'duration': 0.0,
         'peak_order': 0.0,
         'peak_fb': 0.0,
