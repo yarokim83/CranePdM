@@ -86,7 +86,7 @@ CSV_FILE = 'crane_kpi_log.csv'
 RAW_DATA_DIR = 'raw_plc_data'  # Raw PLC samples saved here (gzip compressed)
 RAW_RETENTION_DAYS = 90        # Auto-move raw files older than this to backups
 IDLE_POLL_RATE = 0.5    # Seconds between checks when idle
-ACTIVE_POLL_RATE = 0.1  # Version 3.1.0 - QC 112 SINAMICS Drive Scale Normalization (Raw preserved, KPI normalized)
+ACTIVE_POLL_RATE = 0.1  # Version 3.1.1 - QC 112 SINAMICS Scale Normalization + Source Tag Isolation (live_qc_v31)
 SPEED_THRESHOLD = 50    # Minimum speed to trigger 'movement' event
 
 # V2.6: Geo-fence / hotspot map removed. Position is observational only.
@@ -379,7 +379,7 @@ def calculate_kpis(orders, feedbacks, loads, weights, positions, dt_list, db170_
         avg_shock = avg_curr = avg_track = 1.0
 
     return {
-        'algo_version': '3.1.0',
+        'algo_version': '3.1.1',
         'duration': round(event_duration, 2),
         'peak_order': peak_order,
         'peak_fb': peak_fb,
@@ -471,7 +471,7 @@ def calculate_kpis_qc(orders, feedbacks, loads, weights, positions, dt_list, db1
     load_factor = min(3.0, max(1.0, 1.0 + 0.02 * max(0.0, w_effective - 10.0)))
 
     return {
-        'algo_version': '3.1.0',
+        'algo_version': '3.1.1',
         'duration': round(event_duration, 2),
         'peak_order': peak_speed,
         'peak_fb': peak_speed,
@@ -520,7 +520,7 @@ def log_event(crane_id, kpis):
     try:
         crane_type = "QC" if crane_id.startswith("1") else "ARMGC"
         component = "SpreaderCable" if crane_type == "QC" else "CableReel"
-        source_tag = "live_qc_v30" if crane_type == "QC" else "live_v26"
+        source_tag = "live_qc_v31" if crane_type == "QC" else "live_v26"
         load_val = float(kpis.get('load_factor', kpis.get('track_penalty', 1.0)))
         
         point = (
@@ -793,7 +793,7 @@ def initialize_influx_kpis():
     """
     sync_print("Initializing InfluxDB heartbeat records for all configured cranes...")
     init_kpis = {
-        'algo_version': '3.1.0',
+        'algo_version': '3.1.1',
         'duration': 0.0,
         'peak_order': 0.0,
         'peak_fb': 0.0,
