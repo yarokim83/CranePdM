@@ -86,8 +86,8 @@ CSV_FILE = 'crane_kpi_log.csv'
 RAW_DATA_DIR = 'raw_plc_data'  # Raw PLC samples saved here (gzip compressed)
 RAW_RETENTION_DAYS = 90        # Auto-move raw files older than this to backups
 IDLE_POLL_RATE = 0.5    # Seconds between checks when idle
-APP_VERSION = "3.2.1"   # Version 3.2.1 - Updated Alert Title & Fixed Grafana Dashboard Links (SMTP mail.hpnt.co.kr)
-ACTIVE_POLL_RATE = 0.1  # Version 3.2.1 - QC 112 SINAMICS Scale Normalization + Daily 08:00 Alert Mailer
+APP_VERSION = "3.2.2"   # Version 3.2.2 - Simplified alert table + top Peak Shock crane (ARMGC); prev 3.2.1 Updated Alert Title & Fixed Grafana Dashboard Links (SMTP mail.hpnt.co.kr)
+ACTIVE_POLL_RATE = 0.1  # Version 3.2.2 - QC 112 SINAMICS Scale Normalization + Daily 08:00 Alert Mailer
 SPEED_THRESHOLD = 50    # Minimum speed to trigger 'movement' event
 
 # V2.6: Geo-fence / hotspot map removed. Position is observational only.
@@ -828,6 +828,7 @@ ALERT_RECIPIENT = "baewoong.kim@hpnt.co.kr"
 ALERT_GRAFANA_URL = "http://10.200.19.104:3000"
 ARMGC_ALERT_THRESHOLD = 50.0
 QC_ALERT_THRESHOLD = 6.0
+PEAK_SHOCK_COUNT_THRESHOLD = 15.0  # Peak Shock level counted as a high-impact event
 ALERT_STATE_FILE = "daily_alert_last_checked.txt"
 ALERT_LOG_FILE = "outlook_alert_history.log"
 
@@ -840,38 +841,6 @@ def _alert_log(msg):
             f.write(line + "\n")
     except Exception:
         pass
-
-def _diagnose_armgc(shock, curr, track):
-    causes = []
-    if curr >= 6.5:
-        causes.append(f"<b>과전류 주도형(Curr={curr:.2f})</b>: 케이블 릴 감속기/가이드롤러 기계적 회전 저항 또는 인버터 토크 대비 전류 과다 점검")
-    if shock >= 5.5:
-        causes.append(f"<b>충격 주도형(Shock={shock:.2f})</b>: 다발 충격 구간 레일 단차·이음매 상태 및 가감속 장력 급변 점검")
-    if track >= 1.55:
-        causes.append(f"<b>추종오차 동반(Track={track:.2f})</b>: 고속 주행 가감속 시 지령-피드백 속도 편차 확대")
-    if not causes:
-        causes.append(f"<b>복합 부하 상승</b> (Shock={shock:.2f} × Curr={curr:.2f} × Track={track:.2f})")
-    return "<br>".join(causes)
-
-def _diagnose_qc(shock, curr, load_f):
-    causes = []
-    if shock >= 6.0:
-        causes.append(f"<b>호이스트 급가감속 충격 주도형(Shock={shock:.2f})</b>: 수동 조작 급가감속 또는 스프레더 리듀서 충격 부하 점검")
-    if curr >= 1.05:
-        causes.append(f"<b>과전류 동반(Curr={curr:.3f})</b>: 정격 대기전류 대비 구동 전류 상승 점검")
-    if not causes:
-        causes.append(f"<b>일일 평균 충격 상승</b> (Shock={shock:.2f} × Curr={curr:.3f})")
-    return "<br>".join(causes)
-
-def _find_hotspot_str(pos_vals, shock_vals):
-    valid_pairs = [(p, s) for p, s in zip(pos_vals, shock_vals) if p is not None and s is not None and p > 0]
-    if not valid_pairs:
-        return "-"
-    high_pos = [p for p, s in valid_pairs if s >= 15.0]
-    target = high_pos if len(high_pos) >= 3 else [p for p, _ in valid_pairs]
-    p25 = int(round(float(np.percentile(target, 25)), -1))
-    p75 = int(round(float(np.percentile(target, 75)), -1))
-    return f"Pos {p25:,}" if p25 == p75 else f"Pos {p25:,} ~ {p75:,}"
 
 def run_daily_stress_alert_check(target_date_str=None, force_send=False):
     from datetime import timezone
@@ -899,7 +868,7 @@ def run_daily_stress_alert_check(target_date_str=None, force_send=False):
       |> range(start: {start_utc}, stop: {stop_utc})
       |> filter(fn: (r) => r["_measurement"] == "crane_movement")
       |> filter(fn: (r) => r["crane_id"] =~ /^2.*/)
-      |> filter(fn: (r) => r["_field"] == "shock_penalty" or r["_field"] == "curr_penalty" or r["_field"] == "track_penalty" or r["_field"] == "peak_shock" or r["_field"] == "peak_shock_pos" or r["_field"] == "duration_s")
+      |> filter(fn: (r) => r["_field"] == "shock_penalty" or r["_field"] == "curr_penalty" or r["_field"] == "track_penalty" or r["_field"] == "peak_shock" or r["_field"] == "duration_s")
       |> pivot(rowKey:["_time", "crane_id"], columnKey: ["_field"], valueColumn: "_value")
     '''
     armgc_by_crane = {}
@@ -912,26 +881,25 @@ def run_daily_stress_alert_check(target_date_str=None, force_send=False):
             armgc_by_crane.setdefault(cid, []).append(v)
 
     armgc_alerts, armgc_near = [], []
+    peak_counts = []  # (crane_id, count of events with peak_shock >= threshold, total events, max peak)
     for cid, rows in armgc_by_crane.items():
-        shocks = [float(x.get("shock_penalty") or 1.0) for x in rows]
-        currs = [float(x.get("curr_penalty") or 1.0) for x in rows]
-        tracks = [float(x.get("track_penalty") or 1.0) for x in rows]
+        stresses = [float(x.get("shock_penalty") or 1.0) * float(x.get("curr_penalty") or 1.0) * float(x.get("track_penalty") or 1.0) for x in rows]
         peaks = [float(x.get("peak_shock") or 0.0) for x in rows]
-        p_pos = [float(x.get("peak_shock_pos") or 0.0) for x in rows]
-        stresses = [s * c * tr for s, c, tr in zip(shocks, currs, tracks)]
         avg_s = sum(stresses) / len(stresses)
-        avg_sh, avg_cu, avg_tr = sum(shocks)/len(shocks), sum(currs)/len(currs), sum(tracks)/len(tracks)
-        item = {
-            "crane_id": cid, "events": len(rows), "avg_stress": avg_s, "max_stress": max(stresses),
-            "avg_shock": avg_sh, "avg_curr": avg_cu, "avg_track": avg_tr, "max_peak_shock": max(peaks),
-            "hotspot": _find_hotspot_str(p_pos, peaks), "cause": _diagnose_armgc(avg_sh, avg_cu, avg_tr)
-        }
+        item = {"crane_id": cid, "events": len(rows), "avg_stress": avg_s, "max_stress": max(stresses)}
         if avg_s >= ARMGC_ALERT_THRESHOLD:
             armgc_alerts.append(item)
         elif avg_s >= ARMGC_ALERT_THRESHOLD * 0.90:
             armgc_near.append(item)
+        peak_counts.append((cid, sum(1 for p in peaks if p >= PEAK_SHOCK_COUNT_THRESHOLD), len(rows), max(peaks)))
     armgc_alerts.sort(key=lambda x: x["avg_stress"], reverse=True)
     armgc_near.sort(key=lambda x: x["avg_stress"], reverse=True)
+    # Crane with the most high-peak-shock events (ties -> higher max peak)
+    top_peak = None
+    if peak_counts:
+        best = max(peak_counts, key=lambda x: (x[1], x[3]))
+        if best[1] > 0:
+            top_peak = {"crane_id": best[0], "count": best[1], "events": best[2], "max_peak": best[3]}
 
     # 2. QC SCR Query (crane_type == "QC", component == "SpreaderCable", algo_version == "3.1.1")
     q_qc = f'''
@@ -939,7 +907,7 @@ def run_daily_stress_alert_check(target_date_str=None, force_send=False):
       |> range(start: {start_utc}, stop: {stop_utc})
       |> filter(fn: (r) => r["_measurement"] == "crane_movement")
       |> filter(fn: (r) => r["crane_type"] == "QC" and r["component"] == "SpreaderCable" and r["algo_version"] == "3.1.1")
-      |> filter(fn: (r) => r["_field"] == "shock_penalty" or r["_field"] == "curr_penalty" or r["_field"] == "load_factor" or r["_field"] == "peak_shock" or r["_field"] == "duration_s")
+      |> filter(fn: (r) => r["_field"] == "shock_penalty" or r["_field"] == "curr_penalty" or r["_field"] == "load_factor" or r["_field"] == "duration_s")
       |> pivot(rowKey:["_time", "crane_id"], columnKey: ["_field"], valueColumn: "_value")
     '''
     qc_by_crane = {}
@@ -953,18 +921,9 @@ def run_daily_stress_alert_check(target_date_str=None, force_send=False):
 
     qc_alerts, qc_near = [], []
     for cid, rows in qc_by_crane.items():
-        shocks = [float(x.get("shock_penalty") or 1.0) for x in rows]
-        currs = [float(x.get("curr_penalty") or 1.0) for x in rows]
-        loads = [float(x.get("load_factor") or 1.0) for x in rows]
-        peaks = [float(x.get("peak_shock") or 0.0) for x in rows]
-        stresses = [s * c * lf for s, c, lf in zip(shocks, currs, loads)]
+        stresses = [float(x.get("shock_penalty") or 1.0) * float(x.get("curr_penalty") or 1.0) * float(x.get("load_factor") or 1.0) for x in rows]
         avg_s = sum(stresses) / len(stresses)
-        avg_sh, avg_cu, avg_ld = sum(shocks)/len(shocks), sum(currs)/len(currs), sum(loads)/len(loads)
-        item = {
-            "crane_id": cid, "events": len(rows), "avg_stress": avg_s, "max_stress": max(stresses),
-            "avg_shock": avg_sh, "avg_curr": avg_cu, "avg_load": avg_ld, "max_peak_shock": max(peaks),
-            "cause": _diagnose_qc(avg_sh, avg_cu, avg_ld)
-        }
+        item = {"crane_id": cid, "events": len(rows), "avg_stress": avg_s, "max_stress": max(stresses)}
         if avg_s >= QC_ALERT_THRESHOLD:
             qc_alerts.append(item)
         elif avg_s >= QC_ALERT_THRESHOLD * 0.90:
@@ -972,7 +931,7 @@ def run_daily_stress_alert_check(target_date_str=None, force_send=False):
     qc_alerts.sort(key=lambda x: x["avg_stress"], reverse=True)
     qc_near.sort(key=lambda x: x["avg_stress"], reverse=True)
 
-    _alert_log(f"Checked {date_label}: ARMGC(>={ARMGC_ALERT_THRESHOLD})={len(armgc_alerts)}, QC(>={QC_ALERT_THRESHOLD})={len(qc_alerts)}")
+    _alert_log(f"Checked {date_label}: ARMGC(>={ARMGC_ALERT_THRESHOLD})={len(armgc_alerts)}, QC(>={QC_ALERT_THRESHOLD})={len(qc_alerts)}, TopPeakShock={top_peak}")
     if not armgc_alerts and not qc_alerts and not force_send:
         _alert_log(f"No cranes exceeded thresholds on {date_label}. Skipping email.")
         return
@@ -988,38 +947,39 @@ def run_daily_stress_alert_check(target_date_str=None, force_send=False):
     armgc_url_local = f"http://localhost:3000{armgc_dash_path}"
     qc_url_local = f"http://localhost:3000{qc_dash_path}"
 
-    if armgc_alerts:
-        armgc_rows = "".join([f"""
-        <tr>
-            <td style="padding:10px; border:1px solid #d0d7de; text-align:center; font-weight:bold; font-size:14px;">
-                <a href="{armgc_url_lan}&var-Crane_ID={x['crane_id']}" target="_blank" rel="noopener noreferrer" style="color:#0969da; text-decoration:underline;">ARMGC {x['crane_id']}호</a>
-            </td>
-            <td style="padding:10px; border:1px solid #d0d7de; text-align:center; background-color:#ffebe9; color:#cf222e; font-weight:bold; font-size:15px;">{x['avg_stress']:.2f}</td>
-            <td style="padding:10px; border:1px solid #d0d7de; text-align:center;">{x['max_stress']:.1f}</td>
-            <td style="padding:10px; border:1px solid #d0d7de; text-align:center;">{x['events']:,}회</td>
-            <td style="padding:10px; border:1px solid #d0d7de; text-align:center;">Shock <b>{x['avg_shock']:.2f}</b> / Curr <b>{x['avg_curr']:.2f}</b> / Track <b>{x['avg_track']:.2f}</b></td>
-            <td style="padding:10px; border:1px solid #d0d7de; text-align:center;">{x['max_peak_shock']:.1f} G</td>
-            <td style="padding:10px; border:1px solid #d0d7de; text-align:center; font-weight:bold;">{x['hotspot']}</td>
-            <td style="padding:10px; border:1px solid #d0d7de; text-align:left; font-size:12.5px; line-height:1.4;">{x['cause']}</td>
-        </tr>""" for x in armgc_alerts])
-    else:
-        armgc_rows = '<tr><td colspan="8" style="padding:14px; border:1px solid #d0d7de; text-align:center; color:#1a7f37; background-color:#dafbe1;">전일 기준치(50.0) 초과 ARMGC 호기 없음 (정상)</td></tr>'
+    td = "padding:10px; border:1px solid #d0d7de; text-align:center;"
+    th = "padding:10px; border:1px solid #d0d7de;"
+    stress_td = "padding:10px; border:1px solid #d0d7de; text-align:center; background-color:#ffebe9; color:#cf222e; font-weight:bold; font-size:15px;"
 
-    if qc_alerts:
-        qc_rows = "".join([f"""
+    def make_rows(items, label, url_base):
+        return "".join([f"""
         <tr>
-            <td style="padding:10px; border:1px solid #d0d7de; text-align:center; font-weight:bold; font-size:14px;">
-                <a href="{qc_url_lan}&var-Crane_ID={x['crane_id']}" target="_blank" rel="noopener noreferrer" style="color:#0969da; text-decoration:underline;">QC {x['crane_id']}호</a>
+            <td style="{td} font-weight:bold; font-size:14px;">
+                <a href="{url_base}&var-Crane_ID={x['crane_id']}" target="_blank" rel="noopener noreferrer" style="color:#0969da; text-decoration:underline;">{label} {x['crane_id']}호</a>
             </td>
-            <td style="padding:10px; border:1px solid #d0d7de; text-align:center; background-color:#ffebe9; color:#cf222e; font-weight:bold; font-size:15px;">{x['avg_stress']:.2f}</td>
-            <td style="padding:10px; border:1px solid #d0d7de; text-align:center;">{x['max_stress']:.1f}</td>
-            <td style="padding:10px; border:1px solid #d0d7de; text-align:center;">{x['events']:,}회</td>
-            <td style="padding:10px; border:1px solid #d0d7de; text-align:center;">Shock <b>{x['avg_shock']:.2f}</b> / Curr <b>{x['avg_curr']:.3f}</b> / Load <b>{x['avg_load']:.2f}</b></td>
-            <td style="padding:10px; border:1px solid #d0d7de; text-align:center;">{x['max_peak_shock']:.1f} G</td>
-            <td style="padding:10px; border:1px solid #d0d7de; text-align:left; font-size:12.5px; line-height:1.4;">{x['cause']}</td>
-        </tr>""" for x in qc_alerts])
+            <td style="{stress_td}">{x['avg_stress']:.2f}</td>
+            <td style="{td}">{x['max_stress']:.1f}</td>
+            <td style="{td}">{x['events']:,}회</td>
+        </tr>""" for x in items])
+
+    if armgc_alerts:
+        armgc_rows = make_rows(armgc_alerts, "ARMGC", armgc_url_lan)
     else:
-        qc_rows = '<tr><td colspan="7" style="padding:14px; border:1px solid #d0d7de; text-align:center; color:#1a7f37; background-color:#dafbe1;">전일 기준치(6.0) 초과 QC 호기 없음 (정상)</td></tr>'
+        armgc_rows = f'<tr><td colspan="4" style="padding:14px; border:1px solid #d0d7de; text-align:center; color:#1a7f37; background-color:#dafbe1;">전일 기준치({ARMGC_ALERT_THRESHOLD:.1f}) 초과 ARMGC 호기 없음 (정상)</td></tr>'
+    if qc_alerts:
+        qc_rows = make_rows(qc_alerts, "QC", qc_url_lan)
+    else:
+        qc_rows = f'<tr><td colspan="4" style="padding:14px; border:1px solid #d0d7de; text-align:center; color:#1a7f37; background-color:#dafbe1;">전일 기준치({QC_ALERT_THRESHOLD:.1f}) 초과 QC 호기 없음 (정상)</td></tr>'
+
+    if top_peak:
+        top_peak_html = f"""
+        <div style="margin-top:12px; padding:12px 16px; background-color:#ddf4ff; border-left:4px solid #0969da; font-size:13px;">
+            <b>최고 충격 최다 발생 호기 (ARMGC):</b>
+            <a href="{armgc_url_lan}&var-Crane_ID={top_peak['crane_id']}" target="_blank" rel="noopener noreferrer" style="color:#0969da; font-weight:bold; text-decoration:underline;">ARMGC {top_peak['crane_id']}호</a>
+            &nbsp;-&nbsp; 최고 충격(Peak Shock ≥ {PEAK_SHOCK_COUNT_THRESHOLD:.0f}) <b>{top_peak['count']:,}회</b> / 전체 주행 {top_peak['events']:,}회, 최대 {top_peak['max_peak']:.1f}
+        </div>"""
+    else:
+        top_peak_html = f'<div style="margin-top:12px; padding:12px 16px; background-color:#f6f8fa; border-left:4px solid #8c959f; font-size:13px;"><b>최고 충격 최다 발생 호기 (ARMGC):</b> 전일 Peak Shock ≥ {PEAK_SHOCK_COUNT_THRESHOLD:.0f} 발생 호기 없음</div>'
 
     near_html = ""
     if armgc_near or qc_near:
@@ -1030,10 +990,18 @@ def run_daily_stress_alert_check(target_date_str=None, force_send=False):
             parts.append("QC 주의 관찰(5.4~5.99): " + ", ".join([f"<b>{x['crane_id']}호</b>({x['avg_stress']:.2f})" for x in qc_near]))
         near_html = f'<div style="margin-top:12px; padding:10px 14px; background-color:#fff8c5; border-left:4px solid #d4a72c; font-size:13px; color:#4d2d00;"><b>임계치 근접(주의 관찰) 호기 안내:</b> {" &nbsp;|&nbsp; ".join(parts)}</div>'
 
+    header_row = f"""
+        <tr style="background-color:#f6f8fa; color:#24292f;">
+            <th style="{th} width:130px;">호기</th>
+            <th style="{th} width:130px;">전일 평균<br>Stress</th>
+            <th style="{th} width:130px;">최고<br>Stress</th>
+            <th style="{th} width:130px;">운전<br>횟수</th>
+        </tr>"""
+
     html_body = f"""
     <html>
     <body style="font-family:'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; color:#24292f; line-height:1.5; margin:0; padding:16px;">
-        <div style="max-width:980px; border:1px solid #d0d7de; border-radius:8px; overflow:hidden;">
+        <div style="max-width:760px; border:1px solid #d0d7de; border-radius:8px; overflow:hidden;">
             <div style="background-color:#1f2328; color:#ffffff; padding:16px 20px;">
                 <h2 style="margin:0; font-size:18px;">주장비 감속기 Stress 이상 감지 알림</h2>
                 <p style="margin:6px 0 0 0; font-size:13px; color:#d0d7de;">
@@ -1042,35 +1010,15 @@ def run_daily_stress_alert_check(target_date_str=None, force_send=False):
                 </p>
             </div>
             <div style="padding:20px;">
-                <h3 style="margin:0 0 10px 0; font-size:15px; color:#cf222e;">1. ARMGC GCR (야드 크레인 케이블 릴 감속기) — 기준({ARMGC_ALERT_THRESHOLD:.1f}) 초과: {len(armgc_alerts)}대</h3>
+                <h3 style="margin:0 0 10px 0; font-size:15px; color:#cf222e;">1. ARMGC GCR (야드 크레인 케이블 릴 감속기) - 기준({ARMGC_ALERT_THRESHOLD:.1f}) 초과: {len(armgc_alerts)}대</h3>
                 <table style="width:100%; border-collapse:collapse; font-size:13px;">
-                    <thead>
-                        <tr style="background-color:#f6f8fa; color:#24292f;">
-                            <th style="padding:10px; border:1px solid #d0d7de; width:90px;">호기</th>
-                            <th style="padding:10px; border:1px solid #d0d7de; width:95px;">전일 평균<br>Stress</th>
-                            <th style="padding:10px; border:1px solid #d0d7de; width:75px;">최고<br>Stress</th>
-                            <th style="padding:10px; border:1px solid #d0d7de; width:75px;">주행<br>횟수</th>
-                            <th style="padding:10px; border:1px solid #d0d7de; width:210px;">세부 평균 페널티<br>(Shock / Curr / Track)</th>
-                            <th style="padding:10px; border:1px solid #d0d7de; width:85px;">최고 충격<br>(Peak Shock)</th>
-                            <th style="padding:10px; border:1px solid #d0d7de; width:125px;">충격 다발 구간<br>(Rail Pos)</th>
-                            <th style="padding:10px; border:1px solid #d0d7de;">주요 추정 원인 및 권장 점검 포인트</th>
-                        </tr>
-                    </thead>
+                    <thead>{header_row}</thead>
                     <tbody>{armgc_rows}</tbody>
                 </table>
-                <h3 style="margin:24px 0 10px 0; font-size:15px; color:#0969da;">2. QC SCR (안벽 크레인 스프레더 케이블 감속기) — 기준({QC_ALERT_THRESHOLD:.1f}) 초과: {len(qc_alerts)}대</h3>
+                {top_peak_html}
+                <h3 style="margin:24px 0 10px 0; font-size:15px; color:#0969da;">2. QC SCR (안벽 크레인 스프레더 케이블 감속기) - 기준({QC_ALERT_THRESHOLD:.1f}) 초과: {len(qc_alerts)}대</h3>
                 <table style="width:100%; border-collapse:collapse; font-size:13px;">
-                    <thead>
-                        <tr style="background-color:#f6f8fa; color:#24292f;">
-                            <th style="padding:10px; border:1px solid #d0d7de; width:90px;">호기</th>
-                            <th style="padding:10px; border:1px solid #d0d7de; width:95px;">전일 평균<br>Stress</th>
-                            <th style="padding:10px; border:1px solid #d0d7de; width:75px;">최고<br>Stress</th>
-                            <th style="padding:10px; border:1px solid #d0d7de; width:75px;">운전<br>횟수</th>
-                            <th style="padding:10px; border:1px solid #d0d7de; width:210px;">세부 평균 페널티<br>(Shock / Curr / Load)</th>
-                            <th style="padding:10px; border:1px solid #d0d7de; width:85px;">최고 충격<br>(Peak Shock)</th>
-                            <th style="padding:10px; border:1px solid #d0d7de;">주요 추정 원인 및 권장 점검 포인트</th>
-                        </tr>
-                    </thead>
+                    <thead>{header_row}</thead>
                     <tbody>{qc_rows}</tbody>
                 </table>
                 {near_html}
