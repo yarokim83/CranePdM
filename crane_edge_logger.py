@@ -86,7 +86,8 @@ CSV_FILE = 'crane_kpi_log.csv'
 RAW_DATA_DIR = 'raw_plc_data'  # Raw PLC samples saved here (gzip compressed)
 RAW_RETENTION_DAYS = 90        # Auto-move raw files older than this to backups
 IDLE_POLL_RATE = 0.5    # Seconds between checks when idle
-ACTIVE_POLL_RATE = 0.1  # Version 3.1.1 - QC 112 SINAMICS Scale Normalization + Source Tag Isolation (live_qc_v31)
+APP_VERSION = "3.2.1"   # Version 3.2.1 - Updated Alert Title & Fixed Grafana Dashboard Links (SMTP mail.hpnt.co.kr)
+ACTIVE_POLL_RATE = 0.1  # Version 3.2.1 - QC 112 SINAMICS Scale Normalization + Daily 08:00 Alert Mailer
 SPEED_THRESHOLD = 50    # Minimum speed to trigger 'movement' event
 
 # V2.6: Geo-fence / hotspot map removed. Position is observational only.
@@ -253,7 +254,7 @@ def setup_tray():
         pystray.MenuItem("Exit", on_quit)
     )
     
-    icon = pystray.Icon(APP_NAME, image, "Crane PdM Logger", menu)
+    icon = pystray.Icon(APP_NAME, image, f"Crane PdM Logger v{APP_VERSION}", menu)
     return icon
 
 def calculate_kpis(orders, feedbacks, loads, weights, positions, dt_list, db170_list=None):
@@ -819,13 +820,322 @@ def initialize_influx_kpis():
         except Exception as e:
             sync_print(f"[!] Initialization failed for crane {cid}: {e}")
 
+# --- Daily 08:00 KST Stress Alert Mailer (SMTP Direct to HPNT Exchange) ---
+ALERT_SMTP_SERVER = "mail.hpnt.co.kr"
+ALERT_SMTP_PORT = 25
+ALERT_SENDER = "CranePdM_Alert <baewoong.kim@hpnt.co.kr>"
+ALERT_RECIPIENT = "baewoong.kim@hpnt.co.kr"
+ALERT_GRAFANA_URL = "http://10.200.19.104:3000"
+ARMGC_ALERT_THRESHOLD = 50.0
+QC_ALERT_THRESHOLD = 6.0
+ALERT_STATE_FILE = "daily_alert_last_checked.txt"
+ALERT_LOG_FILE = "outlook_alert_history.log"
+
+def _alert_log(msg):
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    line = f"[{ts}] [ALERT] {msg}"
+    sync_print(line)
+    try:
+        with open(ALERT_LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except Exception:
+        pass
+
+def _diagnose_armgc(shock, curr, track):
+    causes = []
+    if curr >= 6.5:
+        causes.append(f"<b>과전류 주도형(Curr={curr:.2f})</b>: 케이블 릴 감속기/가이드롤러 기계적 회전 저항 또는 인버터 토크 대비 전류 과다 점검")
+    if shock >= 5.5:
+        causes.append(f"<b>충격 주도형(Shock={shock:.2f})</b>: 다발 충격 구간 레일 단차·이음매 상태 및 가감속 장력 급변 점검")
+    if track >= 1.55:
+        causes.append(f"<b>추종오차 동반(Track={track:.2f})</b>: 고속 주행 가감속 시 지령-피드백 속도 편차 확대")
+    if not causes:
+        causes.append(f"<b>복합 부하 상승</b> (Shock={shock:.2f} × Curr={curr:.2f} × Track={track:.2f})")
+    return "<br>".join(causes)
+
+def _diagnose_qc(shock, curr, load_f):
+    causes = []
+    if shock >= 6.0:
+        causes.append(f"<b>호이스트 급가감속 충격 주도형(Shock={shock:.2f})</b>: 수동 조작 급가감속 또는 스프레더 리듀서 충격 부하 점검")
+    if curr >= 1.05:
+        causes.append(f"<b>과전류 동반(Curr={curr:.3f})</b>: 정격 대기전류 대비 구동 전류 상승 점검")
+    if not causes:
+        causes.append(f"<b>일일 평균 충격 상승</b> (Shock={shock:.2f} × Curr={curr:.3f})")
+    return "<br>".join(causes)
+
+def _find_hotspot_str(pos_vals, shock_vals):
+    valid_pairs = [(p, s) for p, s in zip(pos_vals, shock_vals) if p is not None and s is not None and p > 0]
+    if not valid_pairs:
+        return "-"
+    high_pos = [p for p, s in valid_pairs if s >= 15.0]
+    target = high_pos if len(high_pos) >= 3 else [p for p, _ in valid_pairs]
+    p25 = int(round(float(np.percentile(target, 25)), -1))
+    p75 = int(round(float(np.percentile(target, 75)), -1))
+    return f"Pos {p25:,}" if p25 == p75 else f"Pos {p25:,} ~ {p75:,}"
+
+def run_daily_stress_alert_check(target_date_str=None, force_send=False):
+    from datetime import timezone
+    import smtplib
+    from email.mime.multipart import MIMEMultipart
+    from email.mime.text import MIMEText
+
+    KST = timezone(timedelta(hours=9))
+    now_kst = datetime.now(KST)
+    if target_date_str:
+        target_date = datetime.strptime(target_date_str, "%Y-%m-%d").replace(tzinfo=KST)
+    else:
+        yesterday = (now_kst - timedelta(days=1)).date()
+        target_date = datetime(yesterday.year, yesterday.month, yesterday.day, 0, 0, 0, tzinfo=KST)
+
+    start_utc = target_date.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    stop_utc = (target_date + timedelta(days=1)).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    date_label = target_date.strftime("%Y-%m-%d")
+
+    q_api = influx_client.query_api()
+
+    # 1. ARMGC GCR Query (/^2.*/ strict isolation)
+    q_armgc = f'''
+    from(bucket: "{INFLUX_BUCKET}")
+      |> range(start: {start_utc}, stop: {stop_utc})
+      |> filter(fn: (r) => r["_measurement"] == "crane_movement")
+      |> filter(fn: (r) => r["crane_id"] =~ /^2.*/)
+      |> filter(fn: (r) => r["_field"] == "shock_penalty" or r["_field"] == "curr_penalty" or r["_field"] == "track_penalty" or r["_field"] == "peak_shock" or r["_field"] == "peak_shock_pos" or r["_field"] == "duration_s")
+      |> pivot(rowKey:["_time", "crane_id"], columnKey: ["_field"], valueColumn: "_value")
+    '''
+    armgc_by_crane = {}
+    for t in q_api.query(q_armgc):
+        for r in t.records:
+            v = r.values
+            if float(v.get("duration_s") or 0) <= 0:
+                continue
+            cid = str(v.get("crane_id"))
+            armgc_by_crane.setdefault(cid, []).append(v)
+
+    armgc_alerts, armgc_near = [], []
+    for cid, rows in armgc_by_crane.items():
+        shocks = [float(x.get("shock_penalty") or 1.0) for x in rows]
+        currs = [float(x.get("curr_penalty") or 1.0) for x in rows]
+        tracks = [float(x.get("track_penalty") or 1.0) for x in rows]
+        peaks = [float(x.get("peak_shock") or 0.0) for x in rows]
+        p_pos = [float(x.get("peak_shock_pos") or 0.0) for x in rows]
+        stresses = [s * c * tr for s, c, tr in zip(shocks, currs, tracks)]
+        avg_s = sum(stresses) / len(stresses)
+        avg_sh, avg_cu, avg_tr = sum(shocks)/len(shocks), sum(currs)/len(currs), sum(tracks)/len(tracks)
+        item = {
+            "crane_id": cid, "events": len(rows), "avg_stress": avg_s, "max_stress": max(stresses),
+            "avg_shock": avg_sh, "avg_curr": avg_cu, "avg_track": avg_tr, "max_peak_shock": max(peaks),
+            "hotspot": _find_hotspot_str(p_pos, peaks), "cause": _diagnose_armgc(avg_sh, avg_cu, avg_tr)
+        }
+        if avg_s >= ARMGC_ALERT_THRESHOLD:
+            armgc_alerts.append(item)
+        elif avg_s >= ARMGC_ALERT_THRESHOLD * 0.90:
+            armgc_near.append(item)
+    armgc_alerts.sort(key=lambda x: x["avg_stress"], reverse=True)
+    armgc_near.sort(key=lambda x: x["avg_stress"], reverse=True)
+
+    # 2. QC SCR Query (crane_type == "QC", component == "SpreaderCable", algo_version == "3.1.1")
+    q_qc = f'''
+    from(bucket: "{INFLUX_BUCKET}")
+      |> range(start: {start_utc}, stop: {stop_utc})
+      |> filter(fn: (r) => r["_measurement"] == "crane_movement")
+      |> filter(fn: (r) => r["crane_type"] == "QC" and r["component"] == "SpreaderCable" and r["algo_version"] == "3.1.1")
+      |> filter(fn: (r) => r["_field"] == "shock_penalty" or r["_field"] == "curr_penalty" or r["_field"] == "load_factor" or r["_field"] == "peak_shock" or r["_field"] == "duration_s")
+      |> pivot(rowKey:["_time", "crane_id"], columnKey: ["_field"], valueColumn: "_value")
+    '''
+    qc_by_crane = {}
+    for t in q_api.query(q_qc):
+        for r in t.records:
+            v = r.values
+            if float(v.get("duration_s") or 0) <= 0:
+                continue
+            cid = str(v.get("crane_id"))
+            qc_by_crane.setdefault(cid, []).append(v)
+
+    qc_alerts, qc_near = [], []
+    for cid, rows in qc_by_crane.items():
+        shocks = [float(x.get("shock_penalty") or 1.0) for x in rows]
+        currs = [float(x.get("curr_penalty") or 1.0) for x in rows]
+        loads = [float(x.get("load_factor") or 1.0) for x in rows]
+        peaks = [float(x.get("peak_shock") or 0.0) for x in rows]
+        stresses = [s * c * lf for s, c, lf in zip(shocks, currs, loads)]
+        avg_s = sum(stresses) / len(stresses)
+        avg_sh, avg_cu, avg_ld = sum(shocks)/len(shocks), sum(currs)/len(currs), sum(loads)/len(loads)
+        item = {
+            "crane_id": cid, "events": len(rows), "avg_stress": avg_s, "max_stress": max(stresses),
+            "avg_shock": avg_sh, "avg_curr": avg_cu, "avg_load": avg_ld, "max_peak_shock": max(peaks),
+            "cause": _diagnose_qc(avg_sh, avg_cu, avg_ld)
+        }
+        if avg_s >= QC_ALERT_THRESHOLD:
+            qc_alerts.append(item)
+        elif avg_s >= QC_ALERT_THRESHOLD * 0.90:
+            qc_near.append(item)
+    qc_alerts.sort(key=lambda x: x["avg_stress"], reverse=True)
+    qc_near.sort(key=lambda x: x["avg_stress"], reverse=True)
+
+    _alert_log(f"Checked {date_label}: ARMGC(>={ARMGC_ALERT_THRESHOLD})={len(armgc_alerts)}, QC(>={QC_ALERT_THRESHOLD})={len(qc_alerts)}")
+    if not armgc_alerts and not qc_alerts and not force_send:
+        _alert_log(f"No cranes exceeded thresholds on {date_label}. Skipping email.")
+        return
+
+    armgc_names = ", ".join([f"{x['crane_id']}호" for x in armgc_alerts]) if armgc_alerts else "없음"
+    qc_names = ", ".join([f"{x['crane_id']}호" for x in qc_alerts]) if qc_alerts else "없음"
+    subject = f"[주장비 감속기 Stress 이상 감지 알림] 전일({date_label}) 일평균 기준 초과 호기 - ARMGC {len(armgc_alerts)}대({armgc_names}) / QC {len(qc_alerts)}대({qc_names})"
+
+    armgc_dash_path = "/d/total_control_tower_v1/cranepdm-v2-6-reducer-damage-diagnostics?orgId=1"
+    qc_dash_path = "/d/qc_spreader_pdm/274bdbc?orgId=1"
+    armgc_url_lan = f"{ALERT_GRAFANA_URL}{armgc_dash_path}"
+    qc_url_lan = f"{ALERT_GRAFANA_URL}{qc_dash_path}"
+    armgc_url_local = f"http://localhost:3000{armgc_dash_path}"
+    qc_url_local = f"http://localhost:3000{qc_dash_path}"
+
+    if armgc_alerts:
+        armgc_rows = "".join([f"""
+        <tr>
+            <td style="padding:10px; border:1px solid #d0d7de; text-align:center; font-weight:bold; font-size:14px;">
+                <a href="{armgc_url_lan}&var-Crane_ID={x['crane_id']}" target="_blank" rel="noopener noreferrer" style="color:#0969da; text-decoration:underline;">ARMGC {x['crane_id']}호</a>
+            </td>
+            <td style="padding:10px; border:1px solid #d0d7de; text-align:center; background-color:#ffebe9; color:#cf222e; font-weight:bold; font-size:15px;">{x['avg_stress']:.2f}</td>
+            <td style="padding:10px; border:1px solid #d0d7de; text-align:center;">{x['max_stress']:.1f}</td>
+            <td style="padding:10px; border:1px solid #d0d7de; text-align:center;">{x['events']:,}회</td>
+            <td style="padding:10px; border:1px solid #d0d7de; text-align:center;">Shock <b>{x['avg_shock']:.2f}</b> / Curr <b>{x['avg_curr']:.2f}</b> / Track <b>{x['avg_track']:.2f}</b></td>
+            <td style="padding:10px; border:1px solid #d0d7de; text-align:center;">{x['max_peak_shock']:.1f} G</td>
+            <td style="padding:10px; border:1px solid #d0d7de; text-align:center; font-weight:bold;">{x['hotspot']}</td>
+            <td style="padding:10px; border:1px solid #d0d7de; text-align:left; font-size:12.5px; line-height:1.4;">{x['cause']}</td>
+        </tr>""" for x in armgc_alerts])
+    else:
+        armgc_rows = '<tr><td colspan="8" style="padding:14px; border:1px solid #d0d7de; text-align:center; color:#1a7f37; background-color:#dafbe1;">전일 기준치(50.0) 초과 ARMGC 호기 없음 (정상)</td></tr>'
+
+    if qc_alerts:
+        qc_rows = "".join([f"""
+        <tr>
+            <td style="padding:10px; border:1px solid #d0d7de; text-align:center; font-weight:bold; font-size:14px;">
+                <a href="{qc_url_lan}&var-Crane_ID={x['crane_id']}" target="_blank" rel="noopener noreferrer" style="color:#0969da; text-decoration:underline;">QC {x['crane_id']}호</a>
+            </td>
+            <td style="padding:10px; border:1px solid #d0d7de; text-align:center; background-color:#ffebe9; color:#cf222e; font-weight:bold; font-size:15px;">{x['avg_stress']:.2f}</td>
+            <td style="padding:10px; border:1px solid #d0d7de; text-align:center;">{x['max_stress']:.1f}</td>
+            <td style="padding:10px; border:1px solid #d0d7de; text-align:center;">{x['events']:,}회</td>
+            <td style="padding:10px; border:1px solid #d0d7de; text-align:center;">Shock <b>{x['avg_shock']:.2f}</b> / Curr <b>{x['avg_curr']:.3f}</b> / Load <b>{x['avg_load']:.2f}</b></td>
+            <td style="padding:10px; border:1px solid #d0d7de; text-align:center;">{x['max_peak_shock']:.1f} G</td>
+            <td style="padding:10px; border:1px solid #d0d7de; text-align:left; font-size:12.5px; line-height:1.4;">{x['cause']}</td>
+        </tr>""" for x in qc_alerts])
+    else:
+        qc_rows = '<tr><td colspan="7" style="padding:14px; border:1px solid #d0d7de; text-align:center; color:#1a7f37; background-color:#dafbe1;">전일 기준치(6.0) 초과 QC 호기 없음 (정상)</td></tr>'
+
+    near_html = ""
+    if armgc_near or qc_near:
+        parts = []
+        if armgc_near:
+            parts.append("ARMGC 주의 관찰(45.0~49.9): " + ", ".join([f"<b>{x['crane_id']}호</b>({x['avg_stress']:.2f})" for x in armgc_near]))
+        if qc_near:
+            parts.append("QC 주의 관찰(5.4~5.99): " + ", ".join([f"<b>{x['crane_id']}호</b>({x['avg_stress']:.2f})" for x in qc_near]))
+        near_html = f'<div style="margin-top:12px; padding:10px 14px; background-color:#fff8c5; border-left:4px solid #d4a72c; font-size:13px; color:#4d2d00;"><b>임계치 근접(주의 관찰) 호기 안내:</b> {" &nbsp;|&nbsp; ".join(parts)}</div>'
+
+    html_body = f"""
+    <html>
+    <body style="font-family:'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; color:#24292f; line-height:1.5; margin:0; padding:16px;">
+        <div style="max-width:980px; border:1px solid #d0d7de; border-radius:8px; overflow:hidden;">
+            <div style="background-color:#1f2328; color:#ffffff; padding:16px 20px;">
+                <h2 style="margin:0; font-size:18px;">주장비 감속기 Stress 이상 감지 알림</h2>
+                <p style="margin:6px 0 0 0; font-size:13px; color:#d0d7de;">
+                    집계 대상일: <b>{date_label} (00:00 ~ 24:00 KST)</b> &nbsp;|&nbsp;
+                    알람 기준: <b>ARMGC GCR 일평균 ≥ {ARMGC_ALERT_THRESHOLD:.1f}</b> / <b>QC SCR 일평균 ≥ {QC_ALERT_THRESHOLD:.1f}</b>
+                </p>
+            </div>
+            <div style="padding:20px;">
+                <h3 style="margin:0 0 10px 0; font-size:15px; color:#cf222e;">1. ARMGC GCR (야드 크레인 케이블 릴 감속기) — 기준({ARMGC_ALERT_THRESHOLD:.1f}) 초과: {len(armgc_alerts)}대</h3>
+                <table style="width:100%; border-collapse:collapse; font-size:13px;">
+                    <thead>
+                        <tr style="background-color:#f6f8fa; color:#24292f;">
+                            <th style="padding:10px; border:1px solid #d0d7de; width:90px;">호기</th>
+                            <th style="padding:10px; border:1px solid #d0d7de; width:95px;">전일 평균<br>Stress</th>
+                            <th style="padding:10px; border:1px solid #d0d7de; width:75px;">최고<br>Stress</th>
+                            <th style="padding:10px; border:1px solid #d0d7de; width:75px;">주행<br>횟수</th>
+                            <th style="padding:10px; border:1px solid #d0d7de; width:210px;">세부 평균 페널티<br>(Shock / Curr / Track)</th>
+                            <th style="padding:10px; border:1px solid #d0d7de; width:85px;">최고 충격<br>(Peak Shock)</th>
+                            <th style="padding:10px; border:1px solid #d0d7de; width:125px;">충격 다발 구간<br>(Rail Pos)</th>
+                            <th style="padding:10px; border:1px solid #d0d7de;">주요 추정 원인 및 권장 점검 포인트</th>
+                        </tr>
+                    </thead>
+                    <tbody>{armgc_rows}</tbody>
+                </table>
+                <h3 style="margin:24px 0 10px 0; font-size:15px; color:#0969da;">2. QC SCR (안벽 크레인 스프레더 케이블 감속기) — 기준({QC_ALERT_THRESHOLD:.1f}) 초과: {len(qc_alerts)}대</h3>
+                <table style="width:100%; border-collapse:collapse; font-size:13px;">
+                    <thead>
+                        <tr style="background-color:#f6f8fa; color:#24292f;">
+                            <th style="padding:10px; border:1px solid #d0d7de; width:90px;">호기</th>
+                            <th style="padding:10px; border:1px solid #d0d7de; width:95px;">전일 평균<br>Stress</th>
+                            <th style="padding:10px; border:1px solid #d0d7de; width:75px;">최고<br>Stress</th>
+                            <th style="padding:10px; border:1px solid #d0d7de; width:75px;">운전<br>횟수</th>
+                            <th style="padding:10px; border:1px solid #d0d7de; width:210px;">세부 평균 페널티<br>(Shock / Curr / Load)</th>
+                            <th style="padding:10px; border:1px solid #d0d7de; width:85px;">최고 충격<br>(Peak Shock)</th>
+                            <th style="padding:10px; border:1px solid #d0d7de;">주요 추정 원인 및 권장 점검 포인트</th>
+                        </tr>
+                    </thead>
+                    <tbody>{qc_rows}</tbody>
+                </table>
+                {near_html}
+                <div style="margin-top:20px; padding:14px 16px; background-color:#f6f8fa; border:1px solid #d0d7de; border-radius:6px; font-size:13px; line-height:1.8;">
+                    <b>Grafana 실시간 대시보드 바로가기</b> (장비망 PC 접속 필요)<br>
+                    &bull; <b>ARMGC GCR 대시보드:</b>
+                    <a href="{armgc_url_lan}" target="_blank" rel="noopener noreferrer" style="color:#0969da; font-weight:bold; text-decoration:underline;">[장비망 접속 (10.200.19.104)]</a> &nbsp;|&nbsp;
+                    <a href="{armgc_url_local}" target="_blank" rel="noopener noreferrer" style="color:#0969da; text-decoration:underline;">[모니터링 서버 본체 접속 (localhost)]</a><br>
+                    &bull; <b>QC SCR 대시보드:</b>
+                    <a href="{qc_url_lan}" target="_blank" rel="noopener noreferrer" style="color:#0969da; font-weight:bold; text-decoration:underline;">[장비망 접속 (10.200.19.104)]</a> &nbsp;|&nbsp;
+                    <a href="{qc_url_local}" target="_blank" rel="noopener noreferrer" style="color:#0969da; text-decoration:underline;">[모니터링 서버 본체 접속 (localhost)]</a>
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = ALERT_SENDER
+    msg["To"] = ALERT_RECIPIENT
+    msg.attach(MIMEText(html_body, "html", "utf-8"))
+
+    with smtplib.SMTP(ALERT_SMTP_SERVER, ALERT_SMTP_PORT, timeout=15) as server:
+        server.ehlo()
+        server.sendmail(ALERT_RECIPIENT, [ALERT_RECIPIENT], msg.as_string())
+    _alert_log(f"SUCCESS: Sent daily alert email via {ALERT_SMTP_SERVER}:{ALERT_SMTP_PORT} to {ALERT_RECIPIENT}")
+
+def daily_stress_alert_worker():
+    """
+    Background scheduler thread inside crane_edge_logger:
+    Checks every 30s and triggers yesterday's daily Stress Index evaluation once per day at/after 08:00 KST.
+    UsesALERT_STATE_FILE to prevent duplicate sends across restarts on the same day.
+    """
+    from datetime import timezone
+    KST = timezone(timedelta(hours=9))
+    _alert_log("Daily 08:00 KST Stress Alert Scheduler thread started (SMTP mode: mail.hpnt.co.kr:25).")
+    while not stop_event.is_set():
+        try:
+            now_kst = datetime.now(KST)
+            today_str = now_kst.strftime("%Y-%m-%d")
+            last_checked = ""
+            if os.path.exists(ALERT_STATE_FILE):
+                try:
+                    with open(ALERT_STATE_FILE, "r", encoding="utf-8") as f:
+                        last_checked = f.read().strip()
+                except Exception:
+                    pass
+            if now_kst.hour >= 8 and last_checked != today_str:
+                with open(ALERT_STATE_FILE, "w", encoding="utf-8") as f:
+                    f.write(today_str)
+                run_daily_stress_alert_check()
+        except Exception as e:
+            _alert_log(f"Error in daily_stress_alert_worker: {e}")
+        stop_event.wait(30)
+
 def main():
     init_csv()
     initialize_influx_kpis()
-    sync_print(f"Edge Logger Started. Monitoring {len(CRANES)} cranes...")
+    sync_print(f"Edge Logger v{APP_VERSION} Started. Monitoring {len(CRANES)} cranes...")
     
     # Start cleanup thread
     threading.Thread(target=cleanup_old_raw_data, daemon=True).start()
+    threading.Thread(target=daily_stress_alert_worker, daemon=True).start()
     
     # Start crane monitoring threads
     for crane in CRANES:
