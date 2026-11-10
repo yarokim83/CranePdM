@@ -86,8 +86,8 @@ CSV_FILE = 'crane_kpi_log.csv'
 RAW_DATA_DIR = 'raw_plc_data'  # Raw PLC samples saved here (gzip compressed)
 RAW_RETENTION_DAYS = 90        # Auto-move raw files older than this to backups
 IDLE_POLL_RATE = 0.5    # Seconds between checks when idle
-APP_VERSION = "3.2.2"   # Version 3.2.2 - Simplified alert table + top Peak Shock crane (ARMGC); prev 3.2.1 Updated Alert Title & Fixed Grafana Dashboard Links (SMTP mail.hpnt.co.kr)
-ACTIVE_POLL_RATE = 0.1  # Version 3.2.2 - QC 112 SINAMICS Scale Normalization + Daily 08:00 Alert Mailer
+APP_VERSION = "3.2.3"   # Version 3.2.3 - Fix startup cwd (Run-key PermissionError); 3.2.2 Simplified alert table + top Peak Shock crane (ARMGC); prev 3.2.1 Updated Alert Title & Fixed Grafana Dashboard Links (SMTP mail.hpnt.co.kr)
+ACTIVE_POLL_RATE = 0.1  # Version 3.2.3 - QC 112 SINAMICS Scale Normalization + Daily 08:00 Alert Mailer
 SPEED_THRESHOLD = 50    # Minimum speed to trigger 'movement' event
 
 # V2.6: Geo-fence / hotspot map removed. Position is observational only.
@@ -1077,6 +1077,15 @@ def daily_stress_alert_worker():
         stop_event.wait(30)
 
 def main():
+    # Always run from the executable's own folder. When started by the Windows Run key
+    # after a reboot the working directory is C:\Windows\System32 (not writable), which made
+    # relative paths (crane_kpi_log.csv, raw_plc_data, alert logs) fail with PermissionError.
+    try:
+        base_dir = os.path.dirname(os.path.realpath(sys.executable)) if getattr(sys, 'frozen', False) \
+            else os.path.dirname(os.path.realpath(__file__))
+        os.chdir(base_dir)
+    except Exception as e:
+        print(f"[!] Failed to set working directory: {e}")
     init_csv()
     initialize_influx_kpis()
     sync_print(f"Edge Logger v{APP_VERSION} Started. Monitoring {len(CRANES)} cranes...")
