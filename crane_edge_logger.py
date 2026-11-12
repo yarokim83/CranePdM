@@ -86,7 +86,7 @@ CSV_FILE = 'crane_kpi_log.csv'
 RAW_DATA_DIR = 'raw_plc_data'  # Raw PLC samples saved here (gzip compressed)
 RAW_RETENTION_DAYS = 90        # Auto-move raw files older than this to backups
 IDLE_POLL_RATE = 0.5    # Seconds between checks when idle
-APP_VERSION = "3.2.3"   # Version 3.2.3 - Fix startup cwd (Run-key PermissionError); 3.2.2 Simplified alert table + top Peak Shock crane (ARMGC); prev 3.2.1 Updated Alert Title & Fixed Grafana Dashboard Links (SMTP mail.hpnt.co.kr)
+APP_VERSION = "3.2.4"   # Version 3.2.4 - Dedicated InfluxDBClient (enable_gzip=False) & retry-safe state file for Daily 08:00 Alert Mailer
 ACTIVE_POLL_RATE = 0.1  # Version 3.2.3 - QC 112 SINAMICS Scale Normalization + Daily 08:00 Alert Mailer
 SPEED_THRESHOLD = 50    # Minimum speed to trigger 'movement' event
 
@@ -829,7 +829,7 @@ ALERT_GRAFANA_URL = "http://10.200.19.104:3000"
 ARMGC_ALERT_THRESHOLD = 50.0
 QC_ALERT_THRESHOLD = 6.0
 PEAK_SHOCK_COUNT_THRESHOLD = 15.0  # Peak Shock level counted as a high-impact event
-ALERT_STATE_FILE = "daily_alert_last_checked.txt"
+ALERT_STATE_FILE = "daily_alert_sent_v324.txt"
 ALERT_LOG_FILE = "outlook_alert_history.log"
 
 def _alert_log(msg):
@@ -860,7 +860,8 @@ def run_daily_stress_alert_check(target_date_str=None, force_send=False):
     stop_utc = (target_date + timedelta(days=1)).astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     date_label = target_date.strftime("%Y-%m-%d")
 
-    q_api = influx_client.query_api()
+    alert_influx = InfluxDBClient(url=INFLUX_URL, token=INFLUX_TOKEN, org=INFLUX_ORG, timeout=60000, enable_gzip=False)
+    q_api = alert_influx.query_api()
 
     # 1. ARMGC GCR Query (/^2.*/ strict isolation)
     q_armgc = f'''
@@ -918,6 +919,10 @@ def run_daily_stress_alert_check(target_date_str=None, force_send=False):
                 continue
             cid = str(v.get("crane_id"))
             qc_by_crane.setdefault(cid, []).append(v)
+    try:
+        alert_influx.close()
+    except Exception:
+        pass
 
     qc_alerts, qc_near = [], []
     for cid, rows in qc_by_crane.items():
@@ -1069,9 +1074,9 @@ def daily_stress_alert_worker():
                 except Exception:
                     pass
             if now_kst.hour >= 8 and last_checked != today_str:
+                run_daily_stress_alert_check()
                 with open(ALERT_STATE_FILE, "w", encoding="utf-8") as f:
                     f.write(today_str)
-                run_daily_stress_alert_check()
         except Exception as e:
             _alert_log(f"Error in daily_stress_alert_worker: {e}")
         stop_event.wait(30)
