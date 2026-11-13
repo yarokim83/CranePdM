@@ -86,8 +86,8 @@ CSV_FILE = 'crane_kpi_log.csv'
 RAW_DATA_DIR = 'raw_plc_data'  # Raw PLC samples saved here (gzip compressed)
 RAW_RETENTION_DAYS = 90        # Auto-move raw files older than this to backups
 IDLE_POLL_RATE = 0.5    # Seconds between checks when idle
-APP_VERSION = "3.2.4"   # Version 3.2.4 - Dedicated InfluxDBClient (enable_gzip=False) & retry-safe state file for Daily 08:00 Alert Mailer
-ACTIVE_POLL_RATE = 0.1  # Version 3.2.3 - QC 112 SINAMICS Scale Normalization + Daily 08:00 Alert Mailer
+APP_VERSION = "3.2.5"   # Version 3.2.5 - Add ARMGC Top 5 Risk Cranes horizontal bar chart to daily alert email
+ACTIVE_POLL_RATE = 0.1  # Version 3.2.5 - QC 112 SINAMICS Scale Normalization + Daily 08:00 Alert Mailer
 SPEED_THRESHOLD = 50    # Minimum speed to trigger 'movement' event
 
 # V2.6: Geo-fence / hotspot map removed. Position is observational only.
@@ -881,18 +881,21 @@ def run_daily_stress_alert_check(target_date_str=None, force_send=False):
             cid = str(v.get("crane_id"))
             armgc_by_crane.setdefault(cid, []).append(v)
 
-    armgc_alerts, armgc_near = [], []
+    armgc_all, armgc_alerts, armgc_near = [], [], []
     peak_counts = []  # (crane_id, count of events with peak_shock >= threshold, total events, max peak)
     for cid, rows in armgc_by_crane.items():
         stresses = [float(x.get("shock_penalty") or 1.0) * float(x.get("curr_penalty") or 1.0) * float(x.get("track_penalty") or 1.0) for x in rows]
         peaks = [float(x.get("peak_shock") or 0.0) for x in rows]
         avg_s = sum(stresses) / len(stresses)
         item = {"crane_id": cid, "events": len(rows), "avg_stress": avg_s, "max_stress": max(stresses)}
+        armgc_all.append(item)
         if avg_s >= ARMGC_ALERT_THRESHOLD:
             armgc_alerts.append(item)
         elif avg_s >= ARMGC_ALERT_THRESHOLD * 0.90:
             armgc_near.append(item)
         peak_counts.append((cid, sum(1 for p in peaks if p >= PEAK_SHOCK_COUNT_THRESHOLD), len(rows), max(peaks)))
+    armgc_all.sort(key=lambda x: x["avg_stress"], reverse=True)
+    armgc_top5 = armgc_all[:5]
     armgc_alerts.sort(key=lambda x: x["avg_stress"], reverse=True)
     armgc_near.sort(key=lambda x: x["avg_stress"], reverse=True)
     # Crane with the most high-peak-shock events (ties -> higher max peak)
@@ -986,6 +989,51 @@ def run_daily_stress_alert_check(target_date_str=None, force_send=False):
     else:
         top_peak_html = f'<div style="margin-top:12px; padding:12px 16px; background-color:#f6f8fa; border-left:4px solid #8c959f; font-size:13px;"><b>최고 충격 최다 발생 호기 (ARMGC):</b> 전일 Peak Shock ≥ {PEAK_SHOCK_COUNT_THRESHOLD:.0f} 발생 호기 없음</div>'
 
+    top5_bar_html = ""
+    if armgc_top5:
+        bar_max = max(100.0, armgc_top5[0]["avg_stress"] * 1.1)
+        bar_rows = ""
+        for idx, x in enumerate(armgc_top5, 1):
+            val = x["avg_stress"]
+            pct = max(2, min(100, int(round(val / bar_max * 100))))
+            if val >= ARMGC_ALERT_THRESHOLD:
+                bar_color = "#cf222e"
+            elif val >= 40.0:
+                bar_color = "#d97706"
+            else:
+                bar_color = "#1a7f37"
+            bar_rows += f"""
+            <tr>
+                <td style="padding:6px 8px; width:120px; font-weight:bold; font-size:13px; white-space:nowrap;">
+                    {idx}위 &nbsp;<a href="{armgc_url_lan}&var-Crane_ID={x['crane_id']}" target="_blank" rel="noopener noreferrer" style="color:#0969da; text-decoration:underline;">ARMGC {x['crane_id']}호</a>
+                </td>
+                <td style="padding:6px 8px;">
+                    <table style="width:100%; border-collapse:collapse; background-color:#eaeef2;">
+                        <tr>
+                            <td style="width:{pct}%; height:18px; background-color:{bar_color}; font-size:1px; line-height:1px;">&nbsp;</td>
+                            <td style="width:{100 - pct}%; height:18px; background-color:#eaeef2; font-size:1px; line-height:1px;">&nbsp;</td>
+                        </tr>
+                    </table>
+                </td>
+                <td style="padding:6px 8px; width:125px; text-align:right; font-size:13px; white-space:nowrap;">
+                    <b style="color:{bar_color};">{val:.2f}</b> <span style="color:#57606a; font-size:12px;">({x['events']:,}회)</span>
+                </td>
+            </tr>"""
+        top5_bar_html = f"""
+        <div style="margin-top:14px; padding:12px 16px; background-color:#f6f8fa; border:1px solid #d0d7de; border-radius:6px;">
+            <div style="font-size:13.5px; font-weight:bold; color:#24292f; margin-bottom:8px;">
+                ARMGC Top 5 Risk Cranes (전일 일평균 Stress Index)
+            </div>
+            <table style="width:100%; border-collapse:collapse;">
+                {bar_rows}
+            </table>
+            <div style="margin-top:6px; font-size:11.5px; color:#57606a; text-align:right;">
+                범례: <span style="color:#1a7f37; font-weight:bold;">■</span> 정상(&lt;40) &nbsp;
+                <span style="color:#d97706; font-weight:bold;">■</span> 주의(40~49.9) &nbsp;
+                <span style="color:#cf222e; font-weight:bold;">■</span> 경보(≥{ARMGC_ALERT_THRESHOLD:.0f})
+            </div>
+        </div>"""
+
     near_html = ""
     if armgc_near or qc_near:
         parts = []
@@ -1021,6 +1069,7 @@ def run_daily_stress_alert_check(target_date_str=None, force_send=False):
                     <tbody>{armgc_rows}</tbody>
                 </table>
                 {top_peak_html}
+                {top5_bar_html}
                 <h3 style="margin:24px 0 10px 0; font-size:15px; color:#0969da;">2. QC SCR (안벽 크레인 스프레더 케이블 감속기) - 기준({QC_ALERT_THRESHOLD:.1f}) 초과: {len(qc_alerts)}대</h3>
                 <table style="width:100%; border-collapse:collapse; font-size:13px;">
                     <thead>{header_row}</thead>
